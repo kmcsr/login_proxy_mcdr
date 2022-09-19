@@ -4,12 +4,12 @@ import mcdreforged.api.all as MCDR
 from .server import *
 
 __all__ = [
-	'get_server'
+	'get_proxy'
 ]
 
 pxserver: ProxyServer = None
 
-def get_server() -> ProxyServer:
+def get_proxy() -> ProxyServer:
 	return pxserver
 
 def on_load(server: MCDR.PluginServerInterface):

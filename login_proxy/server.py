@@ -69,7 +69,7 @@ class ProxyServer:
 		self._lock = threading.Condition(threading.Lock())
 		self._socket = None
 		self._status = 0
-		self._conns = LockedData([])
+		self._conns = LockedData({})
 
 	@property
 	def base(self):
@@ -96,7 +96,18 @@ class ProxyServer:
 		return self._max_players
 
 	def get_conns(self) -> list[Conn]:
-		return self._conns.copy()
+		with self._conns:
+			conns = list(self._conns.d.values())
+			return conns
+
+	def get_conn(self, name: str) -> Conn:
+		with self._conns:
+			return self._conns.d.get(name, None)
+
+	def get_conns_by_ip(self, ip: str) -> list[Conn]:
+		with self._conns:
+			conns = list(filter(lambda c: c.ip == ip, self._conns.d.values()))
+			return conns
 
 	@property
 	def on_login(self):
@@ -126,13 +137,13 @@ class ProxyServer:
 		c = Conn(name, addr, conn, self)
 		def final():
 			with self._conns:
-				if c in self._conns.d:
+				if c.name in self._conns.d:
 					c._server = None
-					self._conns.d.remove(c)
+					self._conns.d.pop(c.name)
 		forwarder(conn, sokt, addr, final=final)
 		forwarder(sokt, conn, addr, final=final)
 		with self._conns:
-			self._conns.d.append(c)
+			self._conns.d[c.name] = c
 		return True
 
 	def new_connect(self, login_data: dict):

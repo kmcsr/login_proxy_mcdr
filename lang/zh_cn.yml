@@ -1,0 +1,10 @@
+login_proxy:
+  help_msg: |-
+    {0} help :显示此帮助消息
+    {0} list :列出所有玩家/IP
+    {0} query <name> :查询玩家IP
+    {0} banned :列出被禁止的玩家&IP
+    {0} ban <name> :禁止玩家连接
+    {0} banip <ip> :禁止IP连接
+    {0} pardon <name> :恢复玩家
+    {0} pardonip <ip> :恢复IP

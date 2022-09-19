@@ -18,6 +18,7 @@ class LPConfig(Config, msg_id=MSG_ID):
 	minimum_permission_level: Dict[str, int] = {
 		'help':     0,
 		'list':     1,
+		'query':    2,
 		'banned':   2,
 		'ban':      2,
 		'banip':    3,
@@ -29,6 +30,7 @@ class LPConfig(Config, msg_id=MSG_ID):
 		'port': 25565
 	}
 	enable_whitelist: bool = False
+	enable_ip_whitelist: bool = False
 	kick_cmd: str = 'kick {name} {reason}'
 	messages: Dict[str, str] = {
 		'banned.name': 'Your account has been banned',
@@ -80,9 +82,6 @@ def init(server: MCDR.PluginServerInterface):
 
 def destory(server: MCDR.PluginServerInterface):
 	source = server.get_plugin_command_source()
-	cfg = get_config()
-	if cfg is not None:
-		cfg.save(source)
 	lst = ListConfig.instance()
 	if lst is not None:
 		lst.save(source)
