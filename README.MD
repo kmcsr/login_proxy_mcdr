@@ -15,6 +15,10 @@
 
 - Take school
 
+## How to configure it
+
+1. (TODO)
+
 ### Config files
 
 #### login_proxy/config.json _(the mainly config file)_

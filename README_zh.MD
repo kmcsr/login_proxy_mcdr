@@ -6,17 +6,24 @@
 
 *如果本插件有用, 请给个star吧 :)*
 
-### 特性
+## 特性
 
 - 使用**反向代理**代理minecraft服务器**登录包**, *不必担心客户端绕开白名单*
 - 最好的离线登录白名单插件
 - 为MCDR最高级的白名单 ~~(没有之一)~~
 
-### 计划中
+## 计划中
 
 - 暂无
 
-### 配置文件
+## 如何安装&配置
+
+1. 从[releases](https://github.com/kmcsr/login_proxy_mcdr/releases/)下载最新的mcdr文件至插件文件夹
+2. 调整您的minecraft服务器端口 _(在server.properties)_, 使其不与本插件的`proxy_addr`重复 _(如果您使用spigot等第三方服务端, 请确保端口等基本信息与`server.properties`同步)_
+3. 调整您的防火墙配置, 防止外部连接连接您的minecraft服务端 _(或者让您的服务端监听`127.0.0.1`)_
+4. 启动MCDR
+
+## 配置文件
 
 #### login_proxy/config.json _(主配置文件)_
 
