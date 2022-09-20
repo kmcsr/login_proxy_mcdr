@@ -23,6 +23,24 @@
 3. 调整您的防火墙配置, 防止外部连接连接您的minecraft服务端 _(或者让您的服务端监听`127.0.0.1`)_
 4. 启动MCDR
 
+## 指令
+
+|              指令格式 | 介绍 |
+|----------------------|---|
+| `!!lp help`          | 显示帮助信息, `!!lp`同 |
+| `!!lp list`          | 列出所有的玩家及其IP |
+| `!!lp query <name>`  | 查询玩家连接IP |
+| `!!lp banned`        | 列出黑名单 |
+| `!!lp ban <name>`    | 禁止玩家连接 |
+| `!!lp banip <ip>`    | 禁止IP连接 |
+| `!!lp pardon <name>` | 允许玩家连接 |
+| `!!lp pardonip <ip>` | 允许IP连接 |
+| `!!lp whitelist`     | 列出白名单和IP白名单 |
+| `!!lp allow <name>`  | 将玩家添加至白名单 |
+| `!!lp allowip <ip>`  | 将IP添加至IP白名单 |
+| `!!lp remove <name>` | 将玩家从白名单中移除 |
+| `!!lp removeip <ip>` | 将IP从IP白名单中移除 |
+
 ## 配置文件
 
 #### login_proxy/config.json _(主配置文件)_
@@ -37,7 +55,14 @@
         "ban": 2,
         "banip": 3,
         "pardon": 3,
-        "pardonip": 3
+        "pardonip": 3,
+        "whitelist": 2,
+        "enable": 3,
+        "disable": 3,
+        "allow": 3,
+        "allowip": 3,
+        "remove": 3,
+        "removeip": 3
     },
     "proxy_addr": { // 代理服务器地址&端口. 请注意不要与minecraft服务器的重复! 否则你电脑可能会崩溃
         "ip": "",

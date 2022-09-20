@@ -16,14 +16,21 @@ BIG_BLOCK_AFTER = ':::: {0} v{1} ============'
 class LPConfig(Config, msg_id=MSG_ID):
 	# 0:guest 1:user 2:helper 3:admin 4:owner
 	minimum_permission_level: Dict[str, int] = {
-		'help':     0,
-		'list':     1,
-		'query':    2,
-		'banned':   2,
-		'ban':      2,
-		'banip':    3,
-		'pardon':   3,
-		'pardonip': 3,
+		'help':      0,
+		'list':      1,
+		'query':     2,
+		'banned':    2,
+		'ban':       2,
+		'banip':     3,
+		'pardon':    3,
+		'pardonip':  3,
+		'whitelist': 2,
+		'enable':    3,
+		'disable':   3,
+		'allow':     3,
+		'allowip':   3,
+		'remove':    3,
+		'removeip':  3,
 	}
 	proxy_addr: dict = {
 		'ip': '',

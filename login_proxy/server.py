@@ -7,6 +7,7 @@ import socket
 import traceback
 import functools
 import threading
+import time
 from math import *
 
 import mcdreforged.api.all as MCDR
@@ -180,6 +181,8 @@ class ProxyServer:
 		try:
 			while True:
 				conn, addr = self._socket.accept()
+				if self._status != 1:
+					return
 				handle(conn, addr)
 		except ConnectionAbortedError:
 			pass
@@ -193,7 +196,7 @@ class ProxyServer:
 				self._status = 0
 				self._lock.notify_all()
 
-	def start(self):
+	def start(self, reuse: bool = False):
 		with self._lock:
 			if self._status != 0:
 				log_warn('Proxy server running')
@@ -201,6 +204,8 @@ class ProxyServer:
 			self._status = 1
 		try:
 			self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			if reuse:
+				self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 			ip, port = get_config().proxy_addr['ip'], get_config().proxy_addr['port']
 			self._socket.bind((ip, port))
 			self._socket.listen(ceil(self.max_players * 3 / 2))
@@ -216,6 +221,17 @@ class ProxyServer:
 			if self._status != 1:
 				return
 			self._status = 2
+		with self._conns:
+			for c in self._conns.d.values():
+				c.kick('Proxy stopped')
+		if len(self._conns) > 0:
+			time.sleep(0.5)
+		with self._conns:
+			for c in self._conns.d.values():
+				c.disconnect()
+			self._conns.d.clear()
+		with self._lock:
+			assert self._status == 2
 			self._socket.close()
 			self._lock.wait()
 			assert self._status == 0
@@ -253,6 +269,17 @@ class ProxyServer:
 			raise
 
 	def handle_login(self, conn, addr: tuple[str, int], login_data: dict, pkt: Packet):
+		config = get_config()
+		if addr[0] in ListConfig.instance().bannedip:
+			send_package(conn, 0x00, encode_json({
+				'text': config.messages['banned.ip'],
+			}))
+			return
+		if config.enable_ip_whitelist and addr[0] not in ListConfig.instance().allowip:
+			send_package(conn, 0x00, encode_json({
+				'text': config.messages['whitelist.ip'],
+			}))
+			return
 		protocol = login_data['protocol']
 		name = pkt.read_string()
 		login_data['name'] = name
@@ -268,14 +295,14 @@ class ProxyServer:
 			uid = pkt.read_uuid()
 			login_data['uuid'] = uid
 
-		if addr[0] in ListConfig.instance().bannedip:
-			send_package(conn, 0x00, encode_json({
-				'text': get_config().messages['banned.ip'],
-			}))
-			return
 		if name in ListConfig.instance().banned:
 			send_package(conn, 0x00, encode_json({
-				'text': get_config().messages['banned.name'],
+				'text': config.messages['banned.name'],
+			}))
+			return
+		if config.enable_whitelist and name not in ListConfig.instance().allow:
+			send_package(conn, 0x00, encode_json({
+				'text': config.messages['whitelist.name'],
 			}))
 			return
 		if self.on_login is not None and self.on_login(self, conn, addr, name, login_data):
@@ -286,6 +313,17 @@ class ProxyServer:
 		conn.close()
 
 	def handle_ping_1_7(self, conn, addr, protocol: int, login_data: dict):
+		config = get_config()
+		if addr[0] in ListConfig.instance().bannedip:
+			send_package(conn, 0x00, encode_json({
+				'text': config.messages['banned.ip'],
+			}))
+			return
+		if config.enable_ip_whitelist and addr[0] not in ListConfig.instance().allowip:
+			send_package(conn, 0x00, encode_json({
+				'text': config.messages['whitelist.ip'],
+			}))
+			return
 		if MCDR.ServerInterface.get_instance().is_server_startup():
 			sokt = self.new_connect(login_data)
 			forwarder(conn, sokt, addr)
@@ -296,12 +334,6 @@ class ProxyServer:
 			'players': {
 				'max': 0,
 				'online': 0,
-				# 'sample': [
-				# 	{
-				# 		'name': 'Server stopped, please join the game to start the server',
-				# 		'id': '00000000-0000-0000-0000-000000000000'
-				# 	}
-				# ]
 			}
 		}
 		res['description'] = {

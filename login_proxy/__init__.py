@@ -16,7 +16,7 @@ def on_load(server: MCDR.PluginServerInterface, prev_module):
 	else:
 		log_info('Login proxy is on RELOAD')
 	GL.init(server)
-	api.on_load(server)
+	api.on_load(server, prev_module)
 	CMD.register(server)
 
 def on_unload(server: MCDR.PluginServerInterface):

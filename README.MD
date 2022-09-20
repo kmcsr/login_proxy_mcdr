@@ -6,12 +6,12 @@
 
 *If it's useful, please give a star :)*
 
-### Feature
+## Feature
 
 - Use **reverse proxy** to proxy minecraft server **login package**, *clients will never bypassing the whitelist*
 - The best offline whitelist plugin
 
-### TODO
+## TODO
 
 - Take school
 
@@ -19,7 +19,7 @@
 
 1. (TODO)
 
-### Config files
+## Config files
 
 #### login_proxy/config.json _(the mainly config file)_
 

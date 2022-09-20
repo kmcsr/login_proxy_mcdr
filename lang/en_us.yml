@@ -5,6 +5,13 @@ login_proxy:
     {0} query <name> :Query player
     {0} banned :Show banned players and ips
     {0} ban <name> :Ban player
-    {0} banip <ip> :Ban ip
+    {0} banip <ip> :Ban IP
     {0} pardon <name> :Pardon player
-    {0} pardonip <ip> :Pardon ip
+    {0} pardonip <ip> :Pardon IP
+    {0} whitelist :List whitelist and IP whitelist
+    {0} enable [whitelist|iplist] :Enable whitelist or IP whitelist (TODO)
+    {0} disable [whitelist|iplist] :Disable whitelist or IP whitelist (TODO)
+    {0} allow <name> :Add player name to whitelist
+    {0} allowip <ip> :Add IP to IP whitelist
+    {0} remove <name> :Remove player name from whitelist
+    {0} removeip <ip> :Remove IP from IP whitelist

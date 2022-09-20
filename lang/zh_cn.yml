@@ -8,3 +8,10 @@ login_proxy:
     {0} banip <ip> :禁止IP连接
     {0} pardon <name> :恢复玩家
     {0} pardonip <ip> :恢复IP
+    {0} whitelist :列出白名单和IP白名单
+    {0} enable [whitelist|iplist] :启用白名单/IP白名单 (TODO)
+    {0} disable [whitelist|iplist] :禁用白名单/IP白名单 (TODO)
+    {0} allow <name> :将玩家名添加至白名单
+    {0} allowip <ip> :将IP添加至IP白名单
+    {0} remove <name> :将玩家名从白名单移除
+    {0} removeip <ip> :将IP从IP白名单移除
