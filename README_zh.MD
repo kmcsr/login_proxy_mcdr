@@ -19,6 +19,16 @@
 |----|----|
 | [kpi](https://github.com/kmcsr/kpi_mcdr) | <https://github.com/kmcsr/kpi_mcdr/releases> |
 
+## FAQ
+
+- 问: loginproxy会增加玩家延迟吗?
+  答: 完全没有延迟是**不可能的**. 但loginproxy只会转发数据流, 中间不执行任何格外操作, 所以正常状态下延迟影响**可忽略不计** _(<1ms)_.
+
+- 问: loginproxy的白名单与*原版白名单*兼容吗?
+  答: loginproxy白名单是基于*minecraft服务端连接协议*实现的, **与原版白名单不冲突**.
+    您**无法**通过原版白名单指令控制本插件, 本插件也**不会影响到原版白名单的工作**.
+    如果您**同时启用**了*本插件白名单*与*原版白名单(或者其他插件/mod的白名单)*, 您必须保证玩家**同时存在每个白名单列表中**才能进行游戏.
+
 ## 如何安装&配置
 
 1. 从[releases](https://github.com/kmcsr/login_proxy_mcdr/releases/)下载最新的mcdr文件至插件文件夹

@@ -56,33 +56,31 @@ class Conn:
 	def _set_close(self):
 		assert self.__alive
 		self.__alive = False
-		self.__kicking.cancel()
+		if self.__kicking is not None:
+			self.__kicking.cancel()
 
 	def kick(self, reason: str = 'You have been kicked', *, server: MCDR.ServerInterface = None):
 		if self.isalive:
-			raise RuntimeError('StatusError: Connection is not alive')
+			return False
 		if self.__kicking is not None:
-			raise RuntimeError('StatusError: Connection is being kicked out')
+			return False
 		if server is None:
 			server = get_config().server
 		if len(get_config().kick_cmd) > 0:
 			server.execute(get_config().kick_cmd.format(name=self.name, reason=reason))
-			self.__kicking = new_timer(10, self._try_close, name='login_proxy_defer_close')
-			return
-		self.disconnect()
-
-	def _try_close(self):
-		if self.isalive:
-			log_info('Forced disconnect player {0}[{1[0]}:{1[1]}]'.format(self.name, self.addr))
-			self.__conn.close()
+			self.__kicking = new_timer(5.0, self.disconnect, name='lp_defer_close')
+		else:
+			self.disconnect()
+		return True
 
 	def disconnect(self):
 		log_info('Forced disconnect player {0}[{1[0]}:{1[1]}]'.format(self.name, self.addr))
 		self.__conn.close()
 
 class ProxyServer:
-	def __init__(self, base: str):
+	def __init__(self, server: MCDR.ServerInterface, base: str):
 		cls = self.__class__
+		self.__mcdr_server = server
 		self._base = base
 		self._properties = Properties(os.path.join(self._base, 'server.properties'))
 		self._server_addr = (self._properties.get_str('server-ip', '127.0.0.1'), self._properties.get_int('server-port', 25565))
@@ -136,7 +134,7 @@ class ProxyServer:
 
 	@property
 	def on_login(self):
-		return self._on_login.copy()
+		return self._on_login
 
 	@on_login.setter
 	def on_login(self, callback):
@@ -144,39 +142,42 @@ class ProxyServer:
 
 	@property
 	def on_ping(self):
-		return self._on_ping.copy()
+		return self._on_ping
 
 	@on_ping.setter
 	def on_ping(self, callback):
-		self._on_ping.insert(0, callback)
+		self._on_ping.append(callback)
 
 	@staticmethod
 	def default_onlogin(self, conn, addr: tuple[str, int], name: str, login_data: dict):
-		if not MCDR.ServerInterface.get_instance().is_server_startup():
+		if not self.__mcdr_server.is_server_startup():
 			return False
 		log_info('Player {0}[[{1[0]}:{1[1]}]] trying to join'.format(name, addr))
-		sokt = self.new_connect(login_data)
+		sokt = self.new_connection(login_data)
 
 		c = Conn(name, addr, conn, self)
 		def final():
 			with self.__conns:
 				if self.__conns.d.pop(c.name, None) is not None:
 					c._set_close()
-		forwarder(conn, sokt, addr, final=final)
-		forwarder(sokt, conn, addr, final=final)
 		with self.__conns:
 			self.__conns.d[c.name] = c
+		proxy_conn(conn, sokt, addr, final=final)
 		return True
 
 	@staticmethod
 	def default_onping(self, conn, addr: tuple[str, int], login_data: dict, res: dict):
 		if 'description' not in res:
 			res['description'] = {
-				'text': self.modt
+				'text': self.modt,
 			}
+		if MCDR.ServerInterface.get_instance().is_server_startup():
+			sokt = self.new_connection(login_data)
+			proxy_conn(conn, sokt, addr)()
+			return True
 		return False
 
-	def new_connect(self, login_data: dict):
+	def new_connection(self, login_data: dict):
 		sokt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		sokt.connect(self.server_addr)
 		debug('Connected to [{0[0]}:{0[1]}]'.format(self.server_addr))
@@ -253,12 +254,15 @@ class ProxyServer:
 		with self.__conns:
 			for c in self.__conns.d.values():
 				c.kick('MCDR Login Proxy stopping')
-		if len(self.__conns) > 0:
-			time.sleep(0.5)
-		with self.__conns:
-			for c in self.__conns.d.values():
-				c.disconnect()
-			self.__conns.d.clear()
+		for _ in range(30): # wait for 3.0 seconds
+			if len(self.__conns) == 0:
+				break
+			time.sleep(0.1)
+		else:
+			with self.__conns:
+				for c in self.__conns.d.values():
+					c.disconnect()
+				self.__conns.d.clear()
 		with self._lock:
 			assert self.__status == 2
 			self.__socket.close()
@@ -280,12 +284,12 @@ class ProxyServer:
 			def canceler():
 				nonlocal canceled
 				canceled = True
-			server.dispatch_event(ON_CONNECT, (self, conn, addr, canceler), on_executor_thread=False)
+			MCDR.ServerInterface.get_instance().dispatch_event(ON_CONNECT, (self, conn, addr, canceler), on_executor_thread=False)
 			if canceled:
 				conn.close()
 				return
 
-			close_flag: bool = False
+			close_flag: bool = True
 			pid, pkt = recv_package(conn)
 			if pid == 0xfe:
 				if conn.recv(2) == b'\x01\xfa':
@@ -301,7 +305,7 @@ class ProxyServer:
 				if state == 1:
 					pid, _ = recv_package(conn)
 					if pid == 0x00:
-						self.handle_ping_1_7(conn, addr, protocol, login_data)
+						close_flag = not self.handle_ping_1_7(conn, addr, protocol, login_data)
 				elif state == 2:
 					pid, pkt = recv_package(conn)
 					if pid == 0x00:
@@ -352,7 +356,7 @@ class ProxyServer:
 			return False
 		if config.enable_whitelist and \
 			name not in ListConfig.instance().allow and \
-			config.server().get_permission_level(name) < config.whitelist_level:
+			self.__mcdr_server.get_permission_level(name) < config.whitelist_level:
 			send_package(conn, 0x00, encode_json({
 				'text': config.messages['whitelist.name'],
 			}))
@@ -362,7 +366,7 @@ class ProxyServer:
 		def canceler():
 			nonlocal canceled
 			canceled = True
-		server.dispatch_event(ON_LOGIN, (self, conn, addr, name, login_data, canceler), on_executor_thread=False)
+		self.__mcdr_server.dispatch_event(ON_LOGIN, (self, conn, addr, name, login_data, canceler), on_executor_thread=False)
 		if canceled:
 			return False
 
@@ -380,49 +384,55 @@ class ProxyServer:
 			send_package(conn, 0x00, encode_json({
 				'text': config.messages['banned.ip'],
 			}))
-			return
+			return False
 		if config.enable_ip_whitelist and addr[0] not in ListConfig.instance().allowip:
 			send_package(conn, 0x00, encode_json({
 				'text': config.messages['whitelist.ip'],
 			}))
-			return
+			return False
+
 		res = {
-			'version': {'name': 'Sleeping', 'protocol': 0},
+			'version': {
+				'name': 'Idle',
+				'protocol': 0
+			},
 			'players': {
 				'max': 0,
 				'online': 0,
 			}
 		}
-		server.dispatch_event(ON_PING, (self, conn, addr, login_data, res), on_executor_thread=False)
+		self.__mcdr_server.dispatch_event(ON_PING, (self, conn, addr, login_data, res), on_executor_thread=False)
 		for handle in self._on_ping:
 			if handle(self, conn, addr, login_data, res):
-				return
-		if MCDR.ServerInterface.get_instance().is_server_startup():
-			sokt = self.new_connect(login_data)
-			forwarder(conn, sokt, addr)
-			forwarder(sokt, conn, addr)
-			return
+				return False
 
-		try:
-			send_package(conn, 0x00, encode_json(res))
-			# recv ping packet
-			pid, pkt = recv_package(conn)
-			if pid == 0x01:
-				d = pkt.read_long()
-				send_package(conn, 0x01, encode_long(d))
-		finally:
-			conn.close()
+		send_package(conn, 0x00, encode_json(res))
+		# recv ping packet
+		pid, pkt = recv_package(conn)
+		if pid == 0x01:
+			d = pkt.read_long()
+			send_package(conn, 0x01, encode_long(d))
+		return False
 
 	def handle_ping_1_6(self, conn, addr):
 		res = '\xa71\x00'
 		res += str(0) + '\x00'
-		res += 'Sleeping' + '\x00'
+		res += 'Idle' + '\x00'
 		res += self.modt + '\x00'
 		res += '0' + '\x00' + '0'
-		try:
-			conn.sendall(b'\xff' + len(res).to_bytes(2, byteorder='big') + res.encode('utf-16-be'))
-		finally:
-			conn.close()
+		conn.sendall(b'\xff' + len(res).to_bytes(2, byteorder='big') + res.encode('utf-16-be'))
+
+def do_once_wrapper(callback):
+	did = LockedData(False)
+	@functools.wraps(callback)
+	def w(*args, **kwargs):
+		nonlocal did
+		with did:
+			if did.d:
+				return
+			did.d = True
+		return callback(*args, **kwargs)
+	return w
 
 @MCDR.new_thread('lp_forwarder')
 def forwarder(src, dst, addr, *, chunk_size: int = 1024 * 128, final=None): # chunk_size = 128KB
@@ -440,3 +450,25 @@ def forwarder(src, dst, addr, *, chunk_size: int = 1024 * 128, final=None): # ch
 		dst.close()
 		if final is not None:
 			final()
+
+def proxy_conn(c1, c2, addr, *, final=None, **kwargs):
+	cond = threading.Condition(threading.Lock())
+	finished: bool = False
+	def waiter():
+		with cond:
+			if finished:
+				return
+			cond.wait()
+	def final0():
+		nonlocal finished
+		with cond:
+			if finished:
+				return
+			finished = True
+			cond.notify_all()
+		if final is not None:
+			final()
+
+	forwarder(c1, c2, addr, final=final0, **kwargs)
+	forwarder(c2, c1, addr, final=final0, **kwargs)
+	return waiter
