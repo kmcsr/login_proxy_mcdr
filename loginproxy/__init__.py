@@ -2,13 +2,16 @@
 import mcdreforged.api.all as MCDR
 
 globals_ = globals
+from . import constants
 from . import globals as GL
 from .utils import *
 from . import commands as CMD
 from . import api
 
 __all__ = []
+
 export_pkg(globals_(), api)
+export_pkg(globals_(), constants)
 
 def on_load(server: MCDR.PluginServerInterface, prev_module):
 	if prev_module is None:

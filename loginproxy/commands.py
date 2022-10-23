@@ -9,6 +9,7 @@ Prefix = '!!lp'
 
 def register(server: MCDR.PluginServerInterface):
 	cfg = get_config()
+	server.register_help_message(Prefix, 'Login Proxy help message')
 	server.register_command(
 		MCDR.Literal(Prefix).
 		runs(command_help).
@@ -21,6 +22,12 @@ def register(server: MCDR.PluginServerInterface):
 		then(cfg.literal('pardon').then(MCDR.Text('name').runs(lambda src, ctx: command_pardon(src, ctx['name'])))).
 		then(cfg.literal('pardonip').then(MCDR.Text('ip').runs(lambda src, ctx: command_pardonip(src, ctx['ip'])))).
 		then(cfg.literal('whitelist').runs(command_whitelist)).
+		then(cfg.literal('enable').
+			then(MCDR.Literal('whitelist').runs(command_enable_whitelist)).
+			then(MCDR.Literal('iplist').runs(command_enable_iplist))).
+		then(cfg.literal('disable').
+			then(MCDR.Literal('whitelist').runs(command_disable_whitelist)).
+			then(MCDR.Literal('iplist').runs(command_disable_iplist))).
 		then(cfg.literal('allow').then(MCDR.Text('name').runs(lambda src, ctx: command_allow(src, ctx['name'])))).
 		then(cfg.literal('allowip').then(MCDR.Text('ip').runs(lambda src, ctx: command_allowip(src, ctx['ip'])))).
 		then(cfg.literal('remove').then(MCDR.Text('name').runs(lambda src, ctx: command_remove(src, ctx['name'])))).
@@ -82,17 +89,17 @@ def command_banned(source: MCDR.CommandSource):
 
 def command_ban(source: MCDR.CommandSource, name: str):
 	if name in ListConfig.instance().banned:
-		send_message(source, 'Player {} already banned'.format(name))
+		send_message(source, MSG_ID, 'Player {} already banned'.format(name))
 		return
 	ListConfig.instance().banned.append(name)
 	conn = get_proxy().get_conn(name)
 	if conn is not None:
 		conn.kick(get_config().messages['banned.name'], server=source.get_server())
-	send_message(source, 'Successful banned player {}'.format(name))
+	send_message(source, MSG_ID, tr('messages.response.banned_player', name))
 
 def command_banip(source: MCDR.CommandSource, ip: str):
 	if ip in ListConfig.instance().bannedip:
-		send_message(source, 'IP {} already banned'.format(ip))
+		send_message(source, MSG_ID, 'IP {} already banned'.format(ip))
 		return
 	ListConfig.instance().bannedip.append(ip)
 	server = source.get_server()
@@ -100,26 +107,32 @@ def command_banip(source: MCDR.CommandSource, ip: str):
 	conns = get_proxy().get_conns_by_ip(ip)
 	for c in conns:
 		c.kick(msg, server=server)
-	send_message(source, 'Successful banned ip {}'.format(ip))
+	send_message(source, MSG_ID, tr('messages.response.banned_ip', ip))
 
 def command_pardon(source: MCDR.CommandSource, name: str):
 	if name not in ListConfig.instance().banned:
-		send_message(source, 'Player {} has not been banned'.format(name))
+		send_message(source, MSG_ID, 'Player {} has not been banned'.format(name))
 		return
 	ListConfig.instance().banned.remove(name)
-	send_message(source, 'Successful unban player {}'.format(name))
+	send_message(source, MSG_ID, tr('messages.response.unbanned_player', name))
 
 def command_pardonip(source: MCDR.CommandSource, ip: str):
 	if ip not in ListConfig.instance().bannedip:
-		send_message(source, 'IP {} has not been banned'.format(ip))
+		send_message(source, MSG_ID, 'IP {} has not been banned'.format(ip))
 		return
 	ListConfig.instance().bannedip.remove(ip)
-	send_message(source, 'Successful unban ip {}'.format(ip))
+	send_message(source, MSG_ID, tr('messages.response.unbanned_ip', ip))
 
 def command_whitelist(source: MCDR.CommandSource):
 	send_message(source, BIG_BLOCK_BEFOR)
 	cfg = get_config()
-	send_message(source, 'Allowed players', ':')
+	send_message(source, 'Whitelist Level:', cfg.whitelist_level)
+	send_message(source, 'Allowed players',
+		'(enabled)' if cfg.enable_whitelist else '(disabled)',
+		new_command('{0} disable whitelist'.format(Prefix), text='[DISABLE]', color=MCDR.RColor.red)
+		if cfg.enable_whitelist else
+		new_command('{0} enable whitelist'.format(Prefix), text='[ENABLE]', color=MCDR.RColor.green),
+		':')
 	gens = []
 	if cfg.has_permission(source, 'query'):
 		gens.append(lambda p: new_command('{0} query {1}'.format(Prefix, p), text='[Q]', color=MCDR.RColor.light_purple, styles=None))
@@ -132,7 +145,12 @@ def command_whitelist(source: MCDR.CommandSource):
 			new_command(p, action=MCDR.RAction.suggest_command, styles=None),
 			*[g(p) for g in gens])
 
-	send_message(source, 'Allowed ips', ':')
+	send_message(source, 'Allowed ips',
+		'(enabled)' if cfg.enable_ip_whitelist else '(disabled)',
+		new_command('{0} disable iplist'.format(Prefix), text='[DISABLE]', color=MCDR.RColor.red)
+		if cfg.enable_ip_whitelist else
+		new_command('{0} enable iplist'.format(Prefix), text='[ENABLE]', color=MCDR.RColor.green),
+		':')
 	gens = []
 	if cfg.has_permission(source, 'banip'):
 		gens.append(lambda p: new_command('{0} banip {1}'.format(Prefix, p), text='[B]', color=MCDR.RColor.red, styles=None))
@@ -144,34 +162,72 @@ def command_whitelist(source: MCDR.CommandSource):
 			*[g(p) for g in gens])
 	send_message(source, BIG_BLOCK_AFTER)
 
+def command_enable_whitelist(source: MCDR.CommandSource):
+	cfg = get_config()
+	if cfg.enable_whitelist:
+		send_message(source, MSG_ID, MCDR.RText('Whitelist already enabled', color=MCDR.RColor.red))
+		return
+	cfg.enable_whitelist = True
+	allows = ListConfig.instance().allow
+	conns = filter(lambda c: c.name not in allows, )
+	for c in get_proxy().get_conns():
+		if c.name not in allows:
+			c.kick(get_config().messages['whitelist.name'], server=source.get_server())
+	send_message(source, MSG_ID, tr('message.response.whitelist_enabled'))
+
+def command_enable_iplist(source: MCDR.CommandSource):
+	cfg = get_config()
+	if cfg.enable_ip_whitelist:
+		send_message(source, MSG_ID, MCDR.RText('IP whitelist already enabled', color=MCDR.RColor.red))
+		return
+	cfg.enable_ip_whitelist = True
+	# TODO: refresh connections
+	send_message(source, MSG_ID, tr('message.response.ipwhitelist_enabled'))
+
+def command_disable_whitelist(source: MCDR.CommandSource):
+	cfg = get_config()
+	if not cfg.enable_whitelist:
+		send_message(source, MSG_ID, MCDR.RText('Whitelist already disabled', color=MCDR.RColor.red))
+		return
+	cfg.enable_whitelist = False
+	send_message(source, MSG_ID, tr('message.response.whitelist_disabled'))
+
+def command_disable_iplist(source: MCDR.CommandSource):
+	cfg = get_config()
+	if not cfg.enable_ip_whitelist:
+		send_message(source, MSG_ID, MCDR.RText('IP whitelist already disabled', color=MCDR.RColor.red))
+		return
+	cfg.enable_ip_whitelist = False
+	send_message(source, MSG_ID, tr('message.response.ipwhitelist_disabled'))
+
 def command_allow(source: MCDR.CommandSource, name: str):
 	if name in ListConfig.instance().allow:
-		send_message(source, 'Player {} already in whitelist'.format(name))
+		send_message(source, MSG_ID, 'Player {} already in whitelist'.format(name))
 		return
 	ListConfig.instance().allow.append(name)
-	send_message(source, 'Successful allow player {}'.format(name))
+	send_message(source, MSG_ID, 'Successful allow player {}'.format(name))
 
 def command_allowip(source: MCDR.CommandSource, ip: str):
 	if ip in ListConfig.instance().allowip:
-		send_message(source, 'IP {} already whitelist'.format(ip))
+		send_message(source, MSG_ID, 'IP {} already whitelist'.format(ip))
 		return
 	ListConfig.instance().allowip.append(ip)
-	send_message(source, 'Successful allow ip {}'.format(ip))
+	send_message(source, MSG_ID, 'Successful allow ip {}'.format(ip))
 
 def command_remove(source: MCDR.CommandSource, name: str):
 	if name not in ListConfig.instance().allow:
-		send_message(source, 'Player {} has not in whitelist'.format(name))
+		send_message(source, MSG_ID, 'Player {} has not in whitelist'.format(name))
 		return
 	ListConfig.instance().allow.remove(name)
 	if get_config().enable_whitelist:
 		conn = get_proxy().get_conn(name)
 		if conn is not None:
 			conn.kick(get_config().messages['whitelist.name'], server=source.get_server())
-	send_message(source, 'Successful remove player {}'.format(name))
+	send_message(source, MSG_ID, 'Successful remove player {}'.format(name))
 
 def command_removeip(source: MCDR.CommandSource, ip: str):
 	if ip not in ListConfig.instance().allowip:
-		send_message(source, 'IP {} has not in whitelist'.format(ip))
+		send_message(source, MSG_ID, 'IP {} has not in whitelist'.format(ip))
 		return
 	ListConfig.instance().allowip.remove(ip)
 	if get_config().enable_ip_whitelist:
@@ -180,4 +236,4 @@ def command_removeip(source: MCDR.CommandSource, ip: str):
 		conns = get_proxy().get_conns_by_ip(ip)
 		for c in conns:
 			c.kick(msg, server=server)
-	send_message(source, 'Successful remove ip {}'.format(ip))
+	send_message(source, MSG_ID, 'Successful remove ip {}'.format(ip))

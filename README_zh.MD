@@ -11,10 +11,13 @@
 - 使用**反向代理**代理minecraft服务器**登录包**, *不必担心客户端绕开白名单*
 - 最好的离线登录白名单插件
 - 为MCDR最高级的白名单 ~~(没有之一)~~
+- 可扩展, 可以监听并自定义玩家登录事件
 
-## 计划中
+## 依赖
 
-- 暂无
+| ID | 下载链接 |
+|----|----|
+| [kpi](https://github.com/kmcsr/kpi_mcdr) | <https://github.com/kmcsr/kpi_mcdr/releases> |
 
 ## 如何安装&配置
 
@@ -80,7 +83,7 @@
 }
 ```
 
-#### login_proxy/list.json _(玩家白名单黑名单列表)_
+#### login_proxy/list.json _(玩家白名单&黑名单列表)_
 
 ```javascript
 {

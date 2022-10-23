@@ -9,9 +9,19 @@ login_proxy:
     {0} pardon <name> :Pardon player
     {0} pardonip <ip> :Pardon IP
     {0} whitelist :List whitelist and IP whitelist
-    {0} enable [whitelist|iplist] :Enable whitelist or IP whitelist (TODO)
-    {0} disable [whitelist|iplist] :Disable whitelist or IP whitelist (TODO)
+    {0} enable [whitelist|iplist] :Enable whitelist or IP whitelist
+    {0} disable [whitelist|iplist] :Disable whitelist or IP whitelist
     {0} allow <name> :Add player name to whitelist
     {0} allowip <ip> :Add IP to IP whitelist
     {0} remove <name> :Remove player name from whitelist
     {0} removeip <ip> :Remove IP from IP whitelist
+  message:
+    response:
+      banned_player: Successful banned player {0}
+      banned_ip: Successful banned ip {0}
+      unbanned_player: Successful unban player {0}
+      unbanned_ip: Successful unban ip {0}
+      whitelist_enabled: Whitelist enabled now
+      ipwhitelist_enabled: IP whitelist enabled now
+      whitelist_disabled: Whitelist disabled now
+      ipwhitelist_disabled: IP whitelist disabled now

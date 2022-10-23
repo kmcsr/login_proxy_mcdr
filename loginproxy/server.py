@@ -13,9 +13,10 @@ from math import *
 import mcdreforged.api.all as MCDR
 
 from kpi.config import Properties
+from .constants import *
 from .globals import *
 from .utils import *
-from .decoder import *
+from .encoder import *
 
 __all__ = [
 	'ProxyServer', 'Conn'
@@ -28,7 +29,9 @@ class Conn:
 		self._name = name
 		self.__addr = addr
 		self.__conn = conn
-		self._server = server
+		self.__server = server
+		self.__alive = True
+		self.__kicking = None
 
 	@property
 	def name(self) -> str:
@@ -44,15 +47,34 @@ class Conn:
 
 	@property
 	def server(self) -> ProxyServer:
-		return self._server
+		return self.__server
+
+	@property
+	def isalive(self) -> bool:
+		return self.__alive
+
+	def _set_close(self):
+		assert self.__alive
+		self.__alive = False
+		self.__kicking.cancel()
 
 	def kick(self, reason: str = 'You have been kicked', *, server: MCDR.ServerInterface = None):
+		if self.isalive:
+			raise RuntimeError('StatusError: Connection is not alive')
+		if self.__kicking is not None:
+			raise RuntimeError('StatusError: Connection is being kicked out')
 		if server is None:
 			server = get_config().server
 		if len(get_config().kick_cmd) > 0:
 			server.execute(get_config().kick_cmd.format(name=self.name, reason=reason))
+			self.__kicking = new_timer(10, self._try_close, name='login_proxy_defer_close')
 			return
 		self.disconnect()
+
+	def _try_close(self):
+		if self.isalive:
+			log_info('Forced disconnect player {0}[{1[0]}:{1[1]}]'.format(self.name, self.addr))
+			self.__conn.close()
 
 	def disconnect(self):
 		log_info('Forced disconnect player {0}[{1[0]}:{1[1]}]'.format(self.name, self.addr))
@@ -60,17 +82,19 @@ class Conn:
 
 class ProxyServer:
 	def __init__(self, base: str):
+		cls = self.__class__
 		self._base = base
 		self._properties = Properties(os.path.join(self._base, 'server.properties'))
 		self._server_addr = (self._properties.get_str('server-ip', '127.0.0.1'), self._properties.get_int('server-port', 25565))
 		self._modt = self._properties.get_str('motd', 'A Minecraft Server')
 		self._max_players = self._properties.get_int('max-players', 20)
 
-		self._on_login = ProxyServer.default_onlogin
+		self._on_login = [cls.default_onlogin]
+		self._on_ping = [cls.default_onping]
 		self._lock = threading.Condition(threading.Lock())
-		self._socket = None
-		self._status = 0
-		self._conns = LockedData({})
+		self.__socket = None
+		self.__status = 0
+		self.__conns = LockedData({})
 
 	@property
 	def base(self):
@@ -97,36 +121,34 @@ class ProxyServer:
 		return self._max_players
 
 	def get_conns(self) -> list[Conn]:
-		with self._conns:
-			conns = list(self._conns.d.values())
+		with self.__conns:
+			conns = list(self.__conns.d.values())
 			return conns
 
 	def get_conn(self, name: str) -> Conn:
-		with self._conns:
-			return self._conns.d.get(name, None)
+		with self.__conns:
+			return self.__conns.d.get(name, None)
 
 	def get_conns_by_ip(self, ip: str) -> list[Conn]:
-		with self._conns:
-			conns = list(filter(lambda c: c.ip == ip, self._conns.d.values()))
+		with self.__conns:
+			conns = list(filter(lambda c: c.ip == ip, self.__conns.d.values()))
 			return conns
 
 	@property
 	def on_login(self):
-		return self._on_login
+		return self._on_login.copy()
 
 	@on_login.setter
 	def on_login(self, callback):
-		self._on_login = callback
+		self._on_login.insert(0, callback)
 
-	def add_login_handle(self, callback):
-		handle = self._on_login
-		@functools.wraps(callback)
-		def wrapper():
-			if callback():
-				return True
-			return None if handle is None else handle()
-		self.on_login = wrapper
-		return wrapper
+	@property
+	def on_ping(self):
+		return self._on_ping.copy()
+
+	@on_ping.setter
+	def on_ping(self, callback):
+		self._on_ping.insert(0, callback)
 
 	@staticmethod
 	def default_onlogin(self, conn, addr: tuple[str, int], name: str, login_data: dict):
@@ -137,15 +159,22 @@ class ProxyServer:
 
 		c = Conn(name, addr, conn, self)
 		def final():
-			with self._conns:
-				if c.name in self._conns.d:
-					c._server = None
-					self._conns.d.pop(c.name)
+			with self.__conns:
+				if self.__conns.d.pop(c.name, None) is not None:
+					c._set_close()
 		forwarder(conn, sokt, addr, final=final)
 		forwarder(sokt, conn, addr, final=final)
-		with self._conns:
-			self._conns.d[c.name] = c
+		with self.__conns:
+			self.__conns.d[c.name] = c
 		return True
+
+	@staticmethod
+	def default_onping(self, conn, addr: tuple[str, int], login_data: dict, res: dict):
+		if 'description' not in res:
+			res['description'] = {
+				'text': self.modt
+			}
+		return False
 
 	def new_connect(self, login_data: dict):
 		sokt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -180,8 +209,8 @@ class ProxyServer:
 		handle = MCDR.new_thread('lp_handler')(self.handle)
 		try:
 			while True:
-				conn, addr = self._socket.accept()
-				if self._status != 1:
+				conn, addr = self.__socket.accept()
+				if self.__status != 1:
 					return
 				handle(conn, addr)
 		except ConnectionAbortedError:
@@ -190,54 +219,64 @@ class ProxyServer:
 			log_error('Error when listening:', str(e))
 			traceback.print_exc()
 		finally:
-			self._socket.close()
+			self.__socket.close()
 			with self._lock:
-				self._socket = None
-				self._status = 0
+				self.__socket = None
+				self.__status = 0
 				self._lock.notify_all()
 
 	def start(self, reuse: bool = False):
 		with self._lock:
-			if self._status != 0:
+			if self.__status != 0:
 				log_warn('Proxy server running')
 				return
-			self._status = 1
+			self.__status = 1
 		try:
-			self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			self.__socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			if reuse:
-				self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+				self.__socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 			ip, port = get_config().proxy_addr['ip'], get_config().proxy_addr['port']
-			self._socket.bind((ip, port))
-			self._socket.listen(ceil(self.max_players * 3 / 2))
+			self.__socket.bind((ip, port))
+			self.__socket.listen(ceil(self.max_players * 3 / 2))
 			log_info('Proxy server listening at {0}:{1}'.format(ip, port))
 			self.__run()
 		except:
 			with self._lock:
-				self._status = 0
+				self.__status = 0
 			raise
 
 	def stop(self):
 		with self._lock:
-			if self._status != 1:
+			if self.__status != 1:
 				return
-			self._status = 2
-		with self._conns:
-			for c in self._conns.d.values():
-				c.kick('Proxy stopped')
-		if len(self._conns) > 0:
+			self.__status = 2
+		with self.__conns:
+			for c in self.__conns.d.values():
+				c.kick('MCDR Login Proxy stopping')
+		if len(self.__conns) > 0:
 			time.sleep(0.5)
-		with self._conns:
-			for c in self._conns.d.values():
+		with self.__conns:
+			for c in self.__conns.d.values():
 				c.disconnect()
-			self._conns.d.clear()
+			self.__conns.d.clear()
 		with self._lock:
-			assert self._status == 2
-			self._socket.close()
+			assert self.__status == 2
+			self.__socket.close()
 			self._lock.wait()
-			assert self._status == 0
+			assert self.__status == 0
+
+	def __del__(self):
+		with self.__conns:
+			for c in self.__conns.d.values():
+				c.disconnect()
+			self.__conns.d.clear()
+		with self._lock:
+			if self.__status == 2:
+				self.__socket.close()
 
 	def handle(self, conn, addr: tuple[str, int]) -> bool:
 		try:
+			close_flag: bool = False
 			pid, pkt = recv_package(conn)
 			if pid == 0xfe:
 				if conn.recv(2) == b'\x01\xfa':
@@ -257,7 +296,9 @@ class ProxyServer:
 				elif state == 2:
 					pid, pkt = recv_package(conn)
 					if pid == 0x00:
-						self.handle_login(conn, addr, login_data, pkt)
+						close_flag = not self.handle_login(conn, addr, login_data, pkt)
+			if close_flag:
+				conn.close()
 		except ConnectionAbortedError:
 			pass
 		except Exception as e:
@@ -268,18 +309,18 @@ class ProxyServer:
 			conn.close()
 			raise
 
-	def handle_login(self, conn, addr: tuple[str, int], login_data: dict, pkt: Packet):
+	def handle_login(self, conn, addr: tuple[str, int], login_data: dict, pkt: Packet) -> bool:
 		config = get_config()
 		if addr[0] in ListConfig.instance().bannedip:
 			send_package(conn, 0x00, encode_json({
 				'text': config.messages['banned.ip'],
 			}))
-			return
+			return False
 		if config.enable_ip_whitelist and addr[0] not in ListConfig.instance().allowip:
 			send_package(conn, 0x00, encode_json({
 				'text': config.messages['whitelist.ip'],
 			}))
-			return
+			return False
 		protocol = login_data['protocol']
 		name = pkt.read_string()
 		login_data['name'] = name
@@ -299,18 +340,32 @@ class ProxyServer:
 			send_package(conn, 0x00, encode_json({
 				'text': config.messages['banned.name'],
 			}))
-			return
-		if config.enable_whitelist and name not in ListConfig.instance().allow:
+			return False
+		if config.enable_whitelist and \
+			name not in ListConfig.instance().allow and \
+			config.server().get_permission_level(name) < config.whitelist_level:
 			send_package(conn, 0x00, encode_json({
 				'text': config.messages['whitelist.name'],
 			}))
-			return
-		if self.on_login is not None and self.on_login(self, conn, addr, name, login_data):
-			return
+			return False
+
+		canceled: bool = False
+		def canceler():
+			nonlocal canceled
+			canceled = True
+	
+		server.dispatch_event(ON_LOGIN, (self, conn, addr, name, login_data, canceler), on_executor_thread=False)
+
+		if canceled:
+			return False
+
+		for handle in self._on_login:
+			if handle(self, conn, addr, name, login_data):
+				return True
 		send_package(conn, 0x00, encode_json({
-			'text': 'LoginProxy: No login handle found'
+			'text': 'LoginProxy: No login handle found',
 		}))
-		conn.close()
+		return False
 
 	def handle_ping_1_7(self, conn, addr, protocol: int, login_data: dict):
 		config = get_config()
@@ -324,11 +379,6 @@ class ProxyServer:
 				'text': config.messages['whitelist.ip'],
 			}))
 			return
-		if MCDR.ServerInterface.get_instance().is_server_startup():
-			sokt = self.new_connect(login_data)
-			forwarder(conn, sokt, addr)
-			forwarder(sokt, conn, addr)
-			return
 		res = {
 			'version': {'name': 'Sleeping', 'protocol': 0},
 			'players': {
@@ -336,9 +386,16 @@ class ProxyServer:
 				'online': 0,
 			}
 		}
-		res['description'] = {
-			'text': self.modt
-		}
+		server.dispatch_event(ON_PING, (self, conn, addr, login_data, res), on_executor_thread=False)
+		for handle in self._on_ping:
+			if handle(self, conn, addr, login_data, res):
+				return
+		if MCDR.ServerInterface.get_instance().is_server_startup():
+			sokt = self.new_connect(login_data)
+			forwarder(conn, sokt, addr)
+			forwarder(sokt, conn, addr)
+			return
+
 		try:
 			send_package(conn, 0x00, encode_json(res))
 			# recv ping packet
@@ -355,8 +412,10 @@ class ProxyServer:
 		res += 'Sleeping' + '\x00'
 		res += self.modt + '\x00'
 		res += '0' + '\x00' + '0'
-		conn.sendall(b'\xff' + len(res).to_bytes(2, byteorder='big') + res.encode('utf-16-be'))
-		conn.close()
+		try:
+			conn.sendall(b'\xff' + len(res).to_bytes(2, byteorder='big') + res.encode('utf-16-be'))
+		finally:
+			conn.close()
 
 @MCDR.new_thread('lp_forwarder')
 def forwarder(src, dst, addr, *, chunk_size: int = 1024 * 128, final=None): # chunk_size = 128KB

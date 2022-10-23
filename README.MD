@@ -11,9 +11,11 @@
 - Use **reverse proxy** to proxy minecraft server **login package**, *clients will never bypassing the whitelist*
 - The best offline whitelist plugin
 
-## TODO
+## Dependencies
 
-- Take school
+| ID | Release Link |
+|----|----|
+| [kpi](https://github.com/kmcsr/kpi_mcdr) | <https://github.com/kmcsr/kpi_mcdr/releases> |
 
 ## How to configure it
 

@@ -3,15 +3,25 @@ login_proxy:
     {0} help :显示此帮助消息
     {0} list :列出所有玩家/IP
     {0} query <name> :查询玩家IP
-    {0} banned :列出被禁止的玩家&IP
-    {0} ban <name> :禁止玩家连接
-    {0} banip <ip> :禁止IP连接
-    {0} pardon <name> :恢复玩家
-    {0} pardonip <ip> :恢复IP
+    {0} banned :列出被封禁的玩家和IP
+    {0} ban <name> :封禁玩家
+    {0} banip <ip> :封禁IP
+    {0} pardon <name> :解禁玩家
+    {0} pardonip <ip> :解禁IP
     {0} whitelist :列出白名单和IP白名单
-    {0} enable [whitelist|iplist] :启用白名单/IP白名单 (TODO)
-    {0} disable [whitelist|iplist] :禁用白名单/IP白名单 (TODO)
+    {0} enable [whitelist|iplist] :启用白名单/IP白名单
+    {0} disable [whitelist|iplist] :禁用白名单/IP白名单
     {0} allow <name> :将玩家名添加至白名单
     {0} allowip <ip> :将IP添加至IP白名单
     {0} remove <name> :将玩家名从白名单移除
     {0} removeip <ip> :将IP从IP白名单移除
+  message:
+    response:
+      banned_player: 成功封禁玩家 {0}
+      banned_ip: 成功封禁IP {0}
+      unbanned_player: 成功解禁玩家 {0}
+      unbanned_ip: 成功解禁IP {0}
+      whitelist_enabled: 白名单已启用
+      ipwhitelist_enabled: IP白名单已启用
+      whitelist_disabled: 白名单已禁用
+      ipwhitelist_disabled: IP白名单已禁用
