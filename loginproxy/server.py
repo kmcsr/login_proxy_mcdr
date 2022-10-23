@@ -276,6 +276,15 @@ class ProxyServer:
 
 	def handle(self, conn, addr: tuple[str, int]) -> bool:
 		try:
+			canceled: bool = False
+			def canceler():
+				nonlocal canceled
+				canceled = True
+			server.dispatch_event(ON_CONNECT, (self, conn, addr, canceler), on_executor_thread=False)
+			if canceled:
+				conn.close()
+				return
+
 			close_flag: bool = False
 			pid, pkt = recv_package(conn)
 			if pid == 0xfe:
@@ -353,9 +362,7 @@ class ProxyServer:
 		def canceler():
 			nonlocal canceled
 			canceled = True
-	
 		server.dispatch_event(ON_LOGIN, (self, conn, addr, name, login_data, canceler), on_executor_thread=False)
-
 		if canceled:
 			return False
 

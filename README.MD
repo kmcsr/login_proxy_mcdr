@@ -23,7 +23,7 @@
 
 ## Config files
 
-#### login_proxy/config.json _(the mainly config file)_
+#### loginproxy/config.json _(the mainly config file)_
 
 ```javascript
 {
@@ -53,7 +53,7 @@
 }
 ```
 
-#### login_proxy/list.json _(blacklist & whitelist file)_
+#### loginproxy/list.json _(blacklist & whitelist file)_
 
 ```javascript
 {

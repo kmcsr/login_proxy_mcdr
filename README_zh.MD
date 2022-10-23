@@ -46,7 +46,7 @@
 
 ## 配置文件
 
-#### login_proxy/config.json _(主配置文件)_
+#### loginproxy/config.json _(主配置文件)_
 
 ```javascript
 {
@@ -83,7 +83,7 @@
 }
 ```
 
-#### login_proxy/list.json _(玩家白名单&黑名单列表)_
+#### loginproxy/list.json _(玩家白名单&黑名单列表)_
 
 ```javascript
 {
