@@ -1,6 +1,7 @@
 
 import mcdreforged.api.all as MCDR
 
+from .utils import *
 from .server import *
 
 __all__ = [
@@ -12,6 +13,7 @@ pxserver: ProxyServer = None
 def get_proxy() -> ProxyServer:
 	return pxserver
 
+@new_thread
 def on_load(server: MCDR.PluginServerInterface, prev_module):
 	global pxserver
 	pxserver = ProxyServer(server, server.get_mcdr_config()['working_directory'])
@@ -20,6 +22,7 @@ def on_load(server: MCDR.PluginServerInterface, prev_module):
 	else:
 		pxserver.start(reuse=True)
 
+@new_thread
 def on_unload(server: MCDR.PluginServerInterface):
 	global pxserver
 	pxserver.stop()
