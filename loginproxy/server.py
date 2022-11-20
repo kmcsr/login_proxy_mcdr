@@ -78,6 +78,8 @@ class Conn:
 		self.__conn.close()
 
 class ProxyServer:
+	LOGIN_PARSER = []
+
 	def __init__(self, server: MCDR.ServerInterface, base: str):
 		cls = self.__class__
 		self.__mcdr_server = server
@@ -323,6 +325,8 @@ class ProxyServer:
 			raise
 
 	def handle_login(self, conn, addr: tuple[str, int], login_data: dict, pkt: Packet) -> bool:
+		cls = self.__class__
+
 		config = get_config()
 		if addr[0] in ListConfig.instance().bannedip:
 			send_package(conn, 0x00, encode_json({
@@ -335,19 +339,18 @@ class ProxyServer:
 			}))
 			return False
 		protocol = login_data['protocol']
-		name = pkt.read_string()
-		login_data['name'] = name
-		has_sig = pkt.read_bool()
-		login_data['has_sig'] = has_sig
-		if has_sig:
-			login_data['timestamp'] = pkt.read_long()
-			login_data['pubkey'] = pkt.read(pkt.read_varint())
-			login_data['sign'] = pkt.read(pkt.read_varint())
-		has_uuid = pkt.read_bool()
-		login_data['has_uuid'] = has_uuid
-		if has_uuid:
-			uid = pkt.read_uuid()
-			login_data['uuid'] = uid
+
+		for ok, parser in cls.LOGIN_PARSER:
+			if ok(protocol):
+				parser(pkt, login_data)
+				break
+		else:
+			send_package(conn, 0x00, encode_json({
+				'text': 'Unknown protocol {}'.format(protocol),
+			}))
+			return False
+
+		name = login_data['name']
 
 		if name in ListConfig.instance().banned:
 			send_package(conn, 0x00, encode_json({
@@ -377,6 +380,24 @@ class ProxyServer:
 			'text': 'LoginProxy: No login handle found',
 		}))
 		return False
+
+	@staticmethod
+	def _login_parser_1_8(pkt: Packet, login_data: dict):
+		login_data['name'] = pkt.read_string()
+
+	@staticmethod
+	def _login_parser_1_19(pkt: Packet, login_data: dict):
+		login_data['name'] = pkt.read_string()
+		has_sig = pkt.read_bool()
+		login_data['has_sig'] = has_sig
+		if has_sig:
+			login_data['timestamp'] = pkt.read_long()
+			login_data['pubkey'] = pkt.read(pkt.read_varint())
+			login_data['sign'] = pkt.read(pkt.read_varint())
+		has_uuid = pkt.read_bool()
+		login_data['has_uuid'] = has_uuid
+		if has_uuid:
+			login_data['uuid'] = pkt.read_uuid()
 
 	def handle_ping_1_7(self, conn, addr, protocol: int, login_data: dict):
 		config = get_config()
@@ -421,6 +442,9 @@ class ProxyServer:
 		res += self.modt + '\x00'
 		res += '0' + '\x00' + '0'
 		conn.sendall(b'\xff' + len(res).to_bytes(2, byteorder='big') + res.encode('utf-16-be'))
+
+ProxyServer.LOGIN_PARSER.append((lambda p: p >= 759, ProxyServer._login_parser_1_19))
+ProxyServer.LOGIN_PARSER.append((lambda p: True,     ProxyServer._login_parser_1_8))
 
 def do_once_wrapper(callback):
 	did = LockedData(False)
