@@ -22,6 +22,8 @@ __all__ = [
 	'ProxyServer', 'Conn'
 ]
 
+PROTOCOL_1_19 = 759
+
 class ProxyServer: pass
 
 class Conn:
@@ -183,8 +185,9 @@ class ProxyServer:
 		sokt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		sokt.connect(self.server_addr)
 		debug('Connected to [{0[0]}:{0[1]}]'.format(self.server_addr))
+		protocol = login_data['protocol']
 		send_package(sokt, 0x00,
-			encode_varint(login_data['protocol']) +
+			encode_varint(protocol) +
 			encode_string(login_data['host']) +
 			encode_short(login_data['port']) +
 			encode_varint(login_data['state'])
@@ -192,19 +195,23 @@ class ProxyServer:
 		if login_data['state'] == 1:
 			send_package(sokt, 0x00, b'')
 		elif login_data['state'] == 2:
-			send_package(sokt, 0x00,
-				encode_string(login_data['name']) +
-				encode_bool(login_data['has_sig']) +
-				((encode_long(login_data['timestamp']) +
-					encode_varint(len(login_data['pubkey'])) +
-					login_data['pubkey'] +
-					encode_varint(len(login_data['sign'])) +
-					login_data['sign']
-				) if login_data['has_sig'] else b'') +
-				encode_bool(login_data['has_uuid']) +
-				(login_data['uuid'].bytes if login_data['has_uuid'] else b'')
-			)
-
+			if protocol >= PROTOCOL_1_19:
+				send_package(sokt, 0x00,
+					encode_string(login_data['name']) +
+					encode_bool(login_data['has_sig']) +
+					((encode_long(login_data['timestamp']) +
+						encode_varint(len(login_data['pubkey'])) +
+						login_data['pubkey'] +
+						encode_varint(len(login_data['sign'])) +
+						login_data['sign']
+					) if login_data['has_sig'] else b'') +
+					encode_bool(login_data['has_uuid']) +
+					(login_data['uuid'].bytes if login_data['has_uuid'] else b'')
+				)
+			else:
+				send_package(sokt, 0x00,
+					encode_string(login_data['name'])
+				)
 		return sokt
 
 	@new_thread
@@ -340,15 +347,10 @@ class ProxyServer:
 			return False
 		protocol = login_data['protocol']
 
-		for ok, parser in cls.LOGIN_PARSER:
-			if ok(protocol):
-				parser(pkt, login_data)
-				break
+		if protocol >= PROTOCOL_1_19:
+			cls.login_parser_1_19(pkt, login_data)
 		else:
-			send_package(conn, 0x00, encode_json({
-				'text': 'Unknown protocol {}'.format(protocol),
-			}))
-			return False
+			cls.login_parser_1_8(pkt, login_data)
 
 		name = login_data['name']
 
@@ -382,11 +384,11 @@ class ProxyServer:
 		return False
 
 	@staticmethod
-	def _login_parser_1_8(pkt: Packet, login_data: dict):
+	def login_parser_1_8(pkt: Packet, login_data: dict):
 		login_data['name'] = pkt.read_string()
 
 	@staticmethod
-	def _login_parser_1_19(pkt: Packet, login_data: dict):
+	def login_parser_1_19(pkt: Packet, login_data: dict):
 		login_data['name'] = pkt.read_string()
 		has_sig = pkt.read_bool()
 		login_data['has_sig'] = has_sig
@@ -442,9 +444,6 @@ class ProxyServer:
 		res += self.modt + '\x00'
 		res += '0' + '\x00' + '0'
 		conn.sendall(b'\xff' + len(res).to_bytes(2, byteorder='big') + res.encode('utf-16-be'))
-
-ProxyServer.LOGIN_PARSER.append((lambda p: p >= 759, ProxyServer._login_parser_1_19))
-ProxyServer.LOGIN_PARSER.append((lambda p: True,     ProxyServer._login_parser_1_8))
 
 def do_once_wrapper(callback):
 	did = LockedData(False)
