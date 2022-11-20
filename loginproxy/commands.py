@@ -169,7 +169,6 @@ def command_enable_whitelist(source: MCDR.CommandSource):
 		return
 	cfg.enable_whitelist = True
 	allows = ListConfig.instance().allow
-	conns = filter(lambda c: c.name not in allows, )
 	for c in get_proxy().get_conns():
 		if c.name not in allows:
 			c.kick(get_config().messages['whitelist.name'], server=source.get_server())
@@ -181,7 +180,10 @@ def command_enable_iplist(source: MCDR.CommandSource):
 		send_message(source, MSG_ID, MCDR.RText('IP whitelist already enabled', color=MCDR.RColor.red))
 		return
 	cfg.enable_ip_whitelist = True
-	# TODO: refresh connections
+	allows = ListConfig.instance().allowip
+	for c in get_proxy().get_conns():
+		if c.ip not in allows:
+			c.kick(get_config().messages['whitelist.ip'], server=source.get_server())
 	send_message(source, MSG_ID, tr('message.response.ipwhitelist_enabled'))
 
 def command_disable_whitelist(source: MCDR.CommandSource):
