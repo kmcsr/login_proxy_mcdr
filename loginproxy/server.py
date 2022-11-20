@@ -235,6 +235,7 @@ class ProxyServer:
 				self.__status = 0
 				self._lock.notify_all()
 
+	@new_thread
 	def start(self, reuse: bool = False):
 		with self._lock:
 			if self.__status != 0:
@@ -255,6 +256,7 @@ class ProxyServer:
 				self.__status = 0
 			raise
 
+	@new_thread
 	def stop(self):
 		with self._lock:
 			if self.__status != 1:
