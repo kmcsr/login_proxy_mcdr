@@ -177,7 +177,10 @@ class ProxyServer:
 			}
 		if MCDR.ServerInterface.get_instance().is_server_startup():
 			sokt = self.new_connection(login_data)
-			proxy_conn(conn, sokt, addr)()
+			debug('Forward ping connection')
+			waiter = proxy_conn(conn, sokt, addr)
+			waiter()
+			debug('Ping connection finished')
 			return True
 		return False
 
@@ -323,7 +326,7 @@ class ProxyServer:
 						close_flag = not self.handle_login(conn, addr, login_data, pkt)
 			if close_flag:
 				conn.close()
-		except ConnectionAbortedError:
+		except (ConnectionAbortedError, ConnectionResetError):
 			pass
 		except Exception as e:
 			log_warn('Error when handle[{0[0]}:{0[1]}]: {1}'.format(addr, str(e)))
@@ -442,7 +445,7 @@ class ProxyServer:
 	def handle_ping_1_6(self, conn, addr):
 		res = '\xa71\x00'
 		res += str(0) + '\x00'
-		res += 'Idle' + '\x00'
+		res += 'Unsupported' + '\x00'
 		res += self.modt + '\x00'
 		res += '0' + '\x00' + '0'
 		conn.sendall(b'\xff' + len(res).to_bytes(2, byteorder='big') + res.encode('utf-16-be'))
@@ -464,6 +467,8 @@ def forwarder(src, dst, addr, *, chunk_size: int = 1024 * 128, final=None): # ch
 	try:
 		while True:
 			buf = src.recv(chunk_size)
+			if len(buf) == 0:
+				break
 			dst.sendall(buf)
 	except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, OSError):
 		pass

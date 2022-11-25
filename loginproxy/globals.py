@@ -3,7 +3,7 @@ from typing import List, Dict, Any
 
 import mcdreforged.api.all as MCDR
 
-from kpi.config import Config
+from kpi.config import Config, JSONStorage
 from .utils import *
 
 __all__ = [
@@ -50,7 +50,7 @@ class LPConfig(Config, msg_id=MSG_ID):
 		'whitelist.ip': 'Your ip not in the whitelist',
 	}
 
-class ListConfig(MCDR.Serializable):
+class ListConfig(JSONStorage):
 	_instance = None
 
 	banned: List[str] = []
@@ -58,29 +58,15 @@ class ListConfig(MCDR.Serializable):
 	allow: List[str] = []
 	allowip: List[str] = []
 
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
-		self._server = None
-
-	def save(self, source: MCDR.CommandSource):
-		self._server.save_config_simple(self, file_name='list.json')
-		source.reply('List file saved SUCCESS')
-
-	@classmethod
-	def load(cls, source: MCDR.CommandSource, server: MCDR.PluginServerInterface = None):
-		oldConfig = cls.instance()
-		if server is None:
-			assert isinstance(oldConfig, cls)
-			server = oldConfig._server
-		cls._instance = server.load_config_simple(target_class=cls, file_name='list.json', echo_in_console=isinstance(source, MCDR.PlayerCommandSource), source_to_reply=source)
-		cls._instance._server = server
+	def __init__(self, *args, sync_update=True, **kwargs):
+		super().__init__(*args, sync_update=sync_update, **kwargs)
 
 	@classmethod
 	def instance(cls):
 		return cls._instance
 
 def get_config():
-	return LPConfig.instance()
+	return LPConfig.instance
 
 def init(server: MCDR.PluginServerInterface):
 	global BIG_BLOCK_BEFOR, BIG_BLOCK_AFTER
@@ -88,14 +74,13 @@ def init(server: MCDR.PluginServerInterface):
 	LazyData.load(BIG_BLOCK_BEFOR, metadata)
 	LazyData.load(BIG_BLOCK_AFTER, metadata)
 	source = server.get_plugin_command_source()
-	LPConfig.load(source, server)
-	ListConfig.load(source, server)
+	LPConfig.init_instance(server, load_after_init=True)
+	ListConfig._instance = ListConfig(server, load_after_init=True)
 
 def destory(server: MCDR.PluginServerInterface):
-	source = server.get_plugin_command_source()
 	cfg = get_config()
 	if cfg is not None:
-		cfg.save(source)
+		cfg.save()
 	lst = ListConfig.instance()
 	if lst is not None:
-		lst.save(source)
+		lst.save()
