@@ -73,9 +73,8 @@ def init(server: MCDR.PluginServerInterface):
 	metadata = server.get_self_metadata()
 	LazyData.load(BIG_BLOCK_BEFOR, metadata)
 	LazyData.load(BIG_BLOCK_AFTER, metadata)
-	source = server.get_plugin_command_source()
 	LPConfig.init_instance(server, load_after_init=True)
-	ListConfig._instance = ListConfig(server, load_after_init=True)
+	ListConfig._instance = ListConfig(server, 'list.json', load_after_init=True)
 
 def destory(server: MCDR.PluginServerInterface):
 	cfg = get_config()

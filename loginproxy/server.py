@@ -201,13 +201,13 @@ class ProxyServer:
 			if protocol >= PROTOCOL_1_19:
 				send_package(sokt, 0x00,
 					encode_string(login_data['name']) +
-					encode_bool(login_data['has_sig']) +
-					((encode_long(login_data['timestamp']) +
-						encode_varint(len(login_data['pubkey'])) +
-						login_data['pubkey'] +
-						encode_varint(len(login_data['sign'])) +
-						login_data['sign']
-					) if login_data['has_sig'] else b'') +
+					# encode_bool(login_data['has_sig']) +
+					# ((encode_long(login_data['timestamp']) +
+					# 	encode_varint(len(login_data['pubkey'])) +
+					# 	login_data['pubkey'] +
+					# 	encode_varint(len(login_data['sign'])) +
+					# 	login_data['sign']
+					# ) if login_data['has_sig'] else b'') +
 					encode_bool(login_data['has_uuid']) +
 					(login_data['uuid'].bytes if login_data['has_uuid'] else b'')
 				)
@@ -259,7 +259,6 @@ class ProxyServer:
 				self.__status = 0
 			raise
 
-	@new_thread
 	def stop(self):
 		with self._lock:
 			if self.__status != 1:
@@ -291,6 +290,7 @@ class ProxyServer:
 		with self._lock:
 			if self.__status == 2:
 				self.__socket.close()
+				self.__socket = None
 
 	def handle(self, conn, addr: tuple[str, int]) -> bool:
 		try:
@@ -395,12 +395,13 @@ class ProxyServer:
 	@staticmethod
 	def login_parser_1_19(pkt: Packet, login_data: dict):
 		login_data['name'] = pkt.read_string()
-		has_sig = pkt.read_bool()
-		login_data['has_sig'] = has_sig
-		if has_sig:
-			login_data['timestamp'] = pkt.read_long()
-			login_data['pubkey'] = pkt.read(pkt.read_varint())
-			login_data['sign'] = pkt.read(pkt.read_varint())
+		# Seems like no sign data?
+		# has_sig = pkt.read_bool()
+		# login_data['has_sig'] = has_sig
+		# if has_sig:
+		# 	login_data['timestamp'] = pkt.read_long()
+		# 	login_data['pubkey'] = pkt.read(pkt.read_varint())
+		# 	login_data['sign'] = pkt.read(pkt.read_varint())
 		has_uuid = pkt.read_bool()
 		login_data['has_uuid'] = has_uuid
 		if has_uuid:
@@ -425,7 +426,7 @@ class ProxyServer:
 				'protocol': 0
 			},
 			'players': {
-				'max': 0,
+				'max': 1,
 				'online': 0,
 			}
 		}
