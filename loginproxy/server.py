@@ -353,8 +353,8 @@ class ProxyServer:
 				'text': config.messages['whitelist.ip'],
 			}))
 			return False
-		protocol = login_data['protocol']
 
+		protocol = login_data['protocol']
 		if protocol >= PROTOCOL_1_19:
 			cls.login_parser_1_19(pkt, login_data)
 		else:
@@ -398,7 +398,7 @@ class ProxyServer:
 	@staticmethod
 	def login_parser_1_19(pkt: Packet, login_data: dict):
 		login_data['name'] = pkt.read_string()
-		if protocol < PROTOCOL_1_19_2:
+		if login_data['protocol'] < PROTOCOL_1_19_2:
 			has_sig = pkt.read_bool()
 			login_data['has_sig'] = has_sig
 			if has_sig:
