@@ -202,7 +202,7 @@ class ProxyServer:
 			if protocol >= PROTOCOL_1_19:
 				send_package(sokt, 0x00,
 					encode_string(login_data['name']) +
-					(
+					((
 						encode_bool(login_data['has_sig']) +
 						((encode_long(login_data['timestamp']) +
 							encode_varint(len(login_data['pubkey'])) +
@@ -210,7 +210,7 @@ class ProxyServer:
 							encode_varint(len(login_data['sign'])) +
 							login_data['sign']
 						) if login_data['has_sig'] else b'')
-					) if protocol < PROTOCOL_1_19_2 else b'' +
+					) if protocol < PROTOCOL_1_19_2 else b'') +
 					encode_bool(login_data['has_uuid']) +
 					(login_data['uuid'].bytes if login_data['has_uuid'] else b'')
 				)
