@@ -17,7 +17,7 @@ def on_load(server: MCDR.PluginServerInterface, prev_module):
 	global pxserver
 	pxserver = ProxyServer(server, server.get_mcdr_config()['working_directory'])
 	if prev_module is None:
-		pxserver.start()
+		pxserver.start(reuse=True)
 	else:
 		pxserver.start(reuse=True)
 

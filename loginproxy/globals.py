@@ -37,7 +37,9 @@ class LPConfig(Config, msg_id=MSG_ID):
 	}
 	proxy_addr: dict = {
 		'ip': '',
-		'port': 25565
+		'port': 25565,
+		'ipv6': '::',
+		'ipv6_port': 25565,
 	}
 	enable_whitelist: bool = False
 	enable_ip_whitelist: bool = False

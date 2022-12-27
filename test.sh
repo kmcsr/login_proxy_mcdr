@@ -39,7 +39,7 @@ if ! [ -f config.yml ]; then
 fi
 
 if ! [ -n "$SERVER_URL" ]; then
-	SERVER_URL=https://piston-data.mojang.com/v1/objects/f69c284232d7c7580bd89a5a4931c3581eae1378/server.jar
+	SERVER_URL=https://piston-data.mojang.com/v1/objects/c9df48efed58511cdd0213c56b9013a7b5c9ac1f/server.jar
 fi
 SERVER_DIR=server
 SERVRE_JAR=$SERVER_DIR/minecraft_server.jar
