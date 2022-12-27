@@ -78,11 +78,14 @@
         "removeip": 3
     },
     "proxy_addr": { // 代理服务器地址&端口. 请注意不要与minecraft服务器的重复! 否则你电脑可能会崩溃
-        "ip": "",
-        "port": 25565
+        "ip": "", // 代理服务器IPv4专用IP, 设置为`null`禁用IPv4
+        "port": 25565 // IPv4 IP对应的端口
+        "ipv6": "::", // 代理服务器IPv6专用IP, 设置为`null`禁用IPv6
+        "ipv6_port": 25565, // IPv6 IP对应的端口
     },
     "enable_whitelist": false, // 是否启用白名单
     "enable_ip_whitelist": false, // 是否启用IP白名单
+    "whitelist_level": 3, // 当玩家拥有高于或等于此权限时, 忽略白名单
     "kick_cmd": "kick {name} {reason}", // 将在线玩家踢出游戏的指令; 留空为强制断开连接(不推荐)
     "messages": { // 一些提示消息
         "banned.name": "Your account has been banned", // 当玩家名被ban的时候提示
