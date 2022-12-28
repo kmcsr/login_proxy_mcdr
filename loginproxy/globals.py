@@ -3,7 +3,7 @@ from typing import List, Dict, Any
 
 import mcdreforged.api.all as MCDR
 
-from kpi.config import Config, JSONStorage
+from kpi.config import Config, JSONStorage, JSONObject
 from .utils import *
 
 __all__ = [
@@ -15,6 +15,12 @@ BIG_BLOCK_BEFOR = LazyData(lambda data:
 	MCDR.RText('------------ {0} v{1} ::::'.format(data.name, data.version), color=MCDR.RColor.aqua))
 BIG_BLOCK_AFTER = LazyData(lambda data:
 	MCDR.RText(':::: {0} v{1} ============'.format(data.name, data.version), color=MCDR.RColor.aqua))
+
+class _ProxyAddr(JSONObject):
+	ip: str = ''
+	port: int = 25565
+	ipv6: str = '::'
+	ipv6_port: int = 25565
 
 class LPConfig(Config, msg_id=MSG_ID):
 	# 0:guest 1:user 2:helper 3:admin 4:owner
@@ -35,12 +41,7 @@ class LPConfig(Config, msg_id=MSG_ID):
 		'remove':    3,
 		'removeip':  3,
 	}
-	proxy_addr: dict = {
-		'ip': '',
-		'port': 25565,
-		'ipv6': '::',
-		'ipv6_port': 25565,
-	}
+	proxy_addr: _ProxyAddr = _ProxyAddr()
 	enable_whitelist: bool = False
 	enable_ip_whitelist: bool = False
 	whitelist_level: int = 3

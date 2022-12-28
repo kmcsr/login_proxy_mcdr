@@ -253,8 +253,8 @@ class ProxyServer:
 				return
 			self.__status = 1
 		try:
-			ip, port = get_config().proxy_addr['ip'], get_config().proxy_addr['port']
-			ip6, port6 = get_config().proxy_addr['ipv6'], get_config().proxy_addr['ipv6_port']
+			ip, port = get_config().proxy_addr.ip, get_config().proxy_addr.port
+			ip6, port6 = get_config().proxy_addr.ipv6, get_config().proxy_addr.ipv6_port
 
 			ip = ip if ip or ip is None else '0.0.0.0'
 			ip6 = ip6 if ip6 or ip6 is None else '::'
@@ -274,7 +274,7 @@ class ProxyServer:
 			sock6.bind((ip6, port6))
 			sock6.listen(ceil(self.max_players * 3 / 2))
 			self.__sockets.append(sock6)
-			log_info('Proxy server listening at [{0}]:{1}'.format(ip, port))
+			log_info('Proxy server listening at [{0}]:{1}'.format(ip6, port6))
 			self.__run(sock6)
 		except:
 			with self._lock:

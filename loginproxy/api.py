@@ -23,8 +23,9 @@ def on_load(server: MCDR.PluginServerInterface, prev_module):
 
 def on_unload(server: MCDR.PluginServerInterface):
 	global pxserver
-	pxserver.stop()
-	pxserver = None
+	if pxserver is not None:
+		pxserver.stop()
+		pxserver = None
 
 def on_server_start(server: MCDR.PluginServerInterface):
 	pass
