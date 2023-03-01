@@ -49,6 +49,8 @@
 | `!!lp pardon <name>` | 允许玩家连接 |
 | `!!lp pardonip <ip>` | 允许IP连接 |
 | `!!lp whitelist`     | 列出白名单和IP白名单 |
+| `!!lp whitelist [enable|disable]` | 启用/禁用白名单 |
+| `!!lp whitelist [enableip|disableip]` | 启用/禁用IP白名单 |
 | `!!lp allow <name>`  | 将玩家添加至白名单 |
 | `!!lp allowip <ip>`  | 将IP添加至IP白名单 |
 | `!!lp remove <name>` | 将玩家从白名单中移除 |

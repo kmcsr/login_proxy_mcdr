@@ -9,19 +9,53 @@ login_proxy:
     {0} pardon <name> :Pardon player
     {0} pardonip <ip> :Pardon IP
     {0} whitelist :List whitelist and IP whitelist
-    {0} enable [whitelist|iplist] :Enable whitelist or IP whitelist
-    {0} disable [whitelist|iplist] :Disable whitelist or IP whitelist
+    {0} whitelist [enable|disable] :Enable/disable whitelist
+    {0} whitelist [enableip|disableip] :Enable/disable IP whitelist
     {0} allow <name> :Add player name to whitelist
     {0} allowip <ip> :Add IP to IP whitelist
     {0} remove <name> :Remove player name from whitelist
     {0} removeip <ip> :Remove IP from IP whitelist
   message:
+    error:
+      must_be_ip: Argument error, must be a ip address/network
     response:
-      banned_player: Successful banned player {0}
-      banned_ip: Successful banned ip {0}
-      unbanned_player: Successful unban player {0}
-      unbanned_ip: Successful unban ip {0}
-      whitelist_enabled: Whitelist enabled now
-      ipwhitelist_enabled: IP whitelist enabled now
-      whitelist_disabled: Whitelist disabled now
-      ipwhitelist_disabled: IP whitelist disabled now
+      player:
+        already_banned: Player {} already banned
+        banned: Successful banned player {0}
+        not_banned: Player {0} has not been banned
+        unbanned: Successful unban player {0}
+        already_allowed: Player {0} already in the whitelist
+        allowed: Successful allowed player {0}
+        not_exists: Player {0} has not in the whitelist
+        removed: Successful removed player {0}
+      ip:
+        already_banned: IP {0} already banned
+        banned: Successful banned ip {0}
+        not_banned: IP {0} has not been banned
+        unbanned: Successful unban ip {0}
+        already_allowed: IP {0} already in the whitelist
+        allowed: Successful allowed ip {0}
+        not_exists: IP {0} has not in the whitelist
+        removed: Successful removed ip {0}
+      whitelist:
+        already_enabled: Whitelist already enabled
+        enabled: Whitelist enabled now
+        already_disabled: Whitelist already disabled
+        disabled: Whitelist disabled now
+      ipwhitelist:
+        already_enabled: IP whitelist already enabled
+        enabled: IP whitelist enabled now
+        already_disabled: IP whitelist already disabled
+        disabled: IP whitelist disabled now
+    button:
+      whitelist:
+        enable: 'Enable whitelist'
+        disable: 'Disable whitelist'
+        enable_ip: 'Enable IP whitelist'
+        disable_ip: 'Disable IP whitelist'
+  button:
+    enable: EN
+    disable: DIS
+  word:
+    enabled: enabled
+    disabled: disabled

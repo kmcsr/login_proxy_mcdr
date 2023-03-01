@@ -3,6 +3,8 @@ import io
 import json
 import uuid
 
+from kpi.utils import assert_instanceof
+
 __all__ = [
 	'DecodeError',
 	'encode_short', 'encode_int', 'encode_long', 'encode_bool', 'encode_varint', 'encode_string', 'encode_json',
@@ -50,7 +52,7 @@ def encode_json(obj: dict) -> bytes:
 	return encode_varint(len(s)) + s
 
 def send_package(c, pid: int, data: bytes):
-	assert isinstance(data, bytes)
+	assert_instanceof(data, bytes)
 	pidb = encode_varint(pid)
 	c.sendall(encode_varint(len(pidb) + len(data)))
 	c.sendall(pidb)

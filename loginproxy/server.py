@@ -68,9 +68,9 @@ class Conn:
 		if self.__kicking is not None:
 			return False
 		if server is None:
-			server = get_config().server
-		if len(get_config().kick_cmd) > 0:
-			server.execute(get_config().kick_cmd.format(name=self.name, reason=reason))
+			server = self.server.config.server
+		if self.server.config.kick_cmd is not None and len(self.server.config.kick_cmd) > 0:
+			server.execute(self.server.config.kick_cmd.format(name=self.name, reason=reason))
 			self.__kicking = new_timer(5.0, self.disconnect, name='lp_defer_close')
 		else:
 			self.disconnect()
@@ -83,10 +83,12 @@ class Conn:
 class ProxyServer:
 	LOGIN_PARSER = []
 
-	def __init__(self, server: MCDR.ServerInterface, base: str):
+	def __init__(self, server: MCDR.ServerInterface, base: str, config, whlist):
 		cls = self.__class__
 		self.__mcdr_server = server
 		self._base = base
+		self.__config = config
+		self.__whlist = whlist
 		self._properties = Properties(os.path.join(self._base, 'server.properties'))
 		self._server_addr = (self._properties.get_str('server-ip', '127.0.0.1'), self._properties.get_int('server-port', 25565))
 		self._modt = self._properties.get_str('motd', 'A Minecraft Server')
@@ -102,6 +104,14 @@ class ProxyServer:
 	@property
 	def base(self):
 		return self._base
+
+	@property
+	def config(self):
+		return self.__config
+
+	@property
+	def whlist(self):
+		return self.__whlist
 
 	@property
 	def properties(self) -> Properties:
@@ -253,8 +263,8 @@ class ProxyServer:
 				return
 			self.__status = 1
 		try:
-			ip, port = get_config().proxy_addr.ip, get_config().proxy_addr.port
-			ip6, port6 = get_config().proxy_addr.ipv6, get_config().proxy_addr.ipv6_port
+			ip, port = self.config.proxy_addr.ip, self.config.proxy_addr.port
+			ip6, port6 = self.config.proxy_addr.ipv6, self.config.proxy_addr.ipv6_port
 
 			ip = ip if ip or ip is None else '0.0.0.0'
 			ip6 = ip6 if ip6 or ip6 is None else '::'
@@ -369,17 +379,16 @@ class ProxyServer:
 	def handle_login(self, conn, addr: tuple[str, int], login_data: dict, pkt: Packet) -> bool:
 		cls = self.__class__
 
-		config = get_config()
-		if addr[0] in ListConfig.instance().bannedip:
+		if self.whlist.is_bannedip(addr[0]):
 			debug('Disconnected [[{0[0]}]:{0[1]}] for banned IP'.format(addr))
 			send_package(conn, 0x00, encode_json({
-				'text': config.messages['banned.ip'],
+				'text': self.config.messages['banned.ip'],
 			}))
 			return False
-		if config.enable_ip_whitelist and addr[0] not in ListConfig.instance().allowip:
+		if self.config.enable_ip_whitelist and not self.whlist.is_allowedip(addr[0]):
 			debug('Disconnected [[{0[0]}]:{0[1]}] for IP not in whitelist'.format(addr))
 			send_package(conn, 0x00, encode_json({
-				'text': config.messages['whitelist.ip'],
+				'text': self.config.messages['whitelist.ip'],
 			}))
 			return False
 
@@ -391,15 +400,15 @@ class ProxyServer:
 
 		name = login_data['name']
 
-		if name in ListConfig.instance().banned:
+		if name in self.whlist.banned:
 			debug('Disconnected {1}[[{0[0]}]:{0[1]}] for banned name'.format(addr, name))
 			send_package(conn, 0x00, encode_json({
-				'text': config.messages['banned.name'],
+				'text': self.config.messages['banned.name'],
 			}))
 			return False
-		if config.enable_whitelist and \
-			name not in ListConfig.instance().allow and \
-			self.__mcdr_server.get_permission_level(name) < config.whitelist_level:
+		if self.config.enable_whitelist and \
+			name not in self.whlist.allowed and \
+			self.__mcdr_server.get_permission_level(name) < self.config.whitelist_level:
 			debug('Disconnected {1}[[{0[0]}]:{0[1]}] for name not in whilelist'.format(addr, name))
 			send_package(conn, 0x00, encode_json({
 				'text': config.messages['whitelist.name'],
@@ -442,15 +451,14 @@ class ProxyServer:
 			login_data['uuid'] = pkt.read_uuid()
 
 	def handle_ping_1_7(self, conn, addr, protocol: int, login_data: dict):
-		config = get_config()
-		if addr[0] in ListConfig.instance().bannedip:
+		if self.whlist.is_bannedip(addr[0]):
 			send_package(conn, 0x00, encode_json({
-				'text': config.messages['banned.ip'],
+				'text': self.config.messages['banned.ip'],
 			}))
 			return False
-		if config.enable_ip_whitelist and addr[0] not in ListConfig.instance().allowip:
+		if self.config.enable_ip_whitelist and not self.whlist.is_allowedip(addr[0]):
 			send_package(conn, 0x00, encode_json({
-				'text': config.messages['whitelist.ip'],
+				'text': self.config.messages['whitelist.ip'],
 			}))
 			return False
 

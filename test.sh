@@ -7,12 +7,12 @@ cd test
 
 function set_mcdr_config(){
 	while IFS='' read line; do
-		if [[ "${line}" == 'advanced_console:'* ]]; then
-			echo 'advanced_console: false'
-		elif [[ "${line}" == 'check_update:'* ]]; then
+		if [[ "${line}" == 'check_update:'* ]]; then
 			echo 'check_update: false'
-		elif [[ "${line}" == 'disable_console_color:'* ]]; then
-			echo 'disable_console_color: true'
+		# elif [[ "${line}" == 'advanced_console:'* ]]; then
+		# 	echo 'advanced_console: false'
+		# elif [[ "${line}" == 'disable_console_color:'* ]]; then
+		# 	echo 'disable_console_color: true'
 		elif [[ "${line}" == 'debug:'* ]]; then
 			echo "${line}"
 			IFS='' read line
