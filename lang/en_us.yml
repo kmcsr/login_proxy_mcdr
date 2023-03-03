@@ -20,23 +20,23 @@ login_proxy:
       must_be_ip: Argument error, must be a ip address/network
     response:
       player:
-        already_banned: Player {} already banned
+        already_banned: Player {0} already banned
         banned: Successful banned player {0}
         not_banned: Player {0} has not been banned
         unbanned: Successful unban player {0}
         already_allowed: Player {0} already in the whitelist
-        allowed: Successful allowed player {0}
+        allowed: Successful add player {0} into the whitelist
         not_exists: Player {0} has not in the whitelist
-        removed: Successful removed player {0}
+        removed: Successful removed player {0} from the whitelist
       ip:
         already_banned: IP {0} already banned
         banned: Successful banned ip {0}
         not_banned: IP {0} has not been banned
         unbanned: Successful unban ip {0}
         already_allowed: IP {0} already in the whitelist
-        allowed: Successful allowed ip {0}
+        allowed: Successful add ip {0} into the whitelist
         not_exists: IP {0} has not in the whitelist
-        removed: Successful removed ip {0}
+        removed: Successful removed ip {0} from the whitelist
       whitelist:
         already_enabled: Whitelist already enabled
         enabled: Whitelist enabled now

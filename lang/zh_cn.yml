@@ -16,12 +16,46 @@ login_proxy:
     {0} remove <name> :将玩家名从白名单移除
     {0} removeip <ip> :将IP从IP白名单移除
   message:
+    error:
+      must_be_ip: Argument error, must be a ip address/network
     response:
-      banned_player: 成功封禁玩家 {0}
-      banned_ip: 成功封禁IP {0}
-      unbanned_player: 成功解禁玩家 {0}
-      unbanned_ip: 成功解禁IP {0}
-      whitelist_enabled: 白名单已启用
-      ipwhitelist_enabled: IP白名单已启用
-      whitelist_disabled: 白名单已禁用
-      ipwhitelist_disabled: IP白名单已禁用
+      player:
+        already_banned: 玩家 {0} 已经被封禁了
+        banned: 成功封禁玩家 {0}
+        not_banned: 玩家 {0} 还没有被封禁
+        unbanned: 成功解封玩家 {0}
+        already_allowed: 玩家 {0} 已经在白名单中了
+        allowed: 成功将玩家 {0} 加入白名单
+        not_exists: 玩家 {0} 还没有在白名单内
+        removed: 成功将玩家 {0} 从白名单中移除
+      ip:
+        already_banned: IP {0} 已经被封禁了
+        banned: 成功封禁IP {0}
+        not_banned: IP {0} 还没有被封禁
+        unbanned: 成功解封IP {0}
+        already_allowed: IP {0} 已经在白名单中了
+        allowed: 成功将IP {0} 加入白名单
+        not_exists: IP {0} 还没有在白名单内
+        removed: 成功将IP {0} 从白名单中移除
+      whitelist:
+        already_enabled: 白名单已经启用了
+        enabled: 成功启用白名单
+        already_disabled: 白名单已经禁用了
+        disabled: 成功禁用白名单
+      ipwhitelist:
+        already_enabled: IP白名单已经启用了
+        enabled: 成功启用IP白名单
+        already_disabled: IP白名单已经禁用了
+        disabled: 成功禁用IP白名单
+    button:
+      whitelist:
+        enable: '启用白名单'
+        disable: '禁用白名单'
+        enable_ip: '启用IP白名单'
+        disable_ip: '禁用IP白名单'
+  button:
+    enable: 启用
+    disable: 禁用
+  word:
+    enabled: 启用
+    disabled: 禁用
