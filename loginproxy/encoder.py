@@ -7,7 +7,8 @@ from kpi.utils import assert_instanceof
 
 __all__ = [
 	'DecodeError',
-	'encode_short', 'encode_int', 'encode_long', 'encode_bool', 'encode_varint', 'encode_string', 'encode_json',
+	'encode_short', 'encode_int', 'encode_long', 'encode_bool',
+	'encode_varint', 'encode_string', 'encode_json',
 	'send_package',
 	'recv_byte', 'recv_package', 'Packet',
 ]
@@ -44,8 +45,8 @@ def encode_varint(n: int) -> bytes:
 	return bytes(b)
 
 def encode_string(s: str) -> bytes:
-	s = s.encode('utf8')
-	return encode_varint(len(s)) + s
+	b = s.encode('utf8')
+	return encode_varint(len(b)) + b
 
 def encode_json(obj: dict) -> bytes:
 	s = json.dumps(obj).encode('utf8')
@@ -123,7 +124,7 @@ class Packet:
 	def read_json(self) -> dict:
 		n = self.read_varint()
 		b = self.read(n, err='json length is shorter than expected')
-		return json.loads(s.decode('utf8'))
+		return json.loads(b.decode('utf8'))
 
 	def read_uuid(self) -> uuid.UUID:
 		v = self.read(16)
@@ -131,7 +132,7 @@ class Packet:
 			raise DecodeError('UUID length not correct')
 		return uuid.UUID(bytes=v)
 
-def recv_package(c) -> tuple[int, Packet]:
+def recv_package(c) -> tuple[int, Packet | None]:
 	plen, i = 0, 0
 	n = recv_byte(c)
 	if n == 0xfe:

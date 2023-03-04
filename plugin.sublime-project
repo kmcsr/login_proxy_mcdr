@@ -1,0 +1,50 @@
+{
+  "folders":
+  [
+    {
+      "path": ".",
+    }
+  ],
+  "settings":
+  {
+    "translate_tabs_to_spaces": false,
+    "tab_size": 2,
+  },
+  "build_systems":
+  [
+    {
+      "name": "Publish",
+      "working_dir": "$project_path",
+      "cmd": ["bash", "./publisher.sh"],
+    },
+    {
+      "name": "Pack",
+      "working_dir": "$project_path",
+      "cmd": ["bash", "./publisher.sh", "-p"],
+    },
+    {
+      "name": "Release",
+      "working_dir": "$project_path",
+      "cmd": ["bash", "./publisher.sh", "-C"],
+    },
+    {
+      "name": "Test",
+      "target" : "terminus_exec" ,
+      "cancel" : "terminus_cancel_build",
+      "working_dir": "$project_path",
+      "cmd": ["./test.sh"]
+    },
+    {
+      "name": "Typing check",
+      "working_dir": "$project_path",
+      "cmd": ["mypy", "--show-column-numbers", "./loginproxy"],
+      "file_regex": "^([^:]*):([^:]*):((?:[^:]+:)?) (?:error|note): ([^\\n]+)",
+    },
+    {
+      "name": "Ruff check",
+      "working_dir": "$project_path",
+      "cmd": ["ruff", "check", "./loginproxy"],
+      "file_regex": "^([^:]*):([^:]*):([^:]*):([^\\n]+)",
+    },
+  ],
+}

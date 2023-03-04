@@ -10,3 +10,5 @@
 
 # python
 __pycache__
+.*_cache
+

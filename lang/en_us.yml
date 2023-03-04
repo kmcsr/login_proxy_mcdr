@@ -2,6 +2,7 @@ login_proxy:
   help_msg: |-
     {0} help :Show this help message
     {0} list :List players
+      aka `{0} ls`
     {0} query <name> :Query player
     {0} banned :Show banned players and ips
     {0} ban <name> :Ban player
@@ -9,15 +10,20 @@ login_proxy:
     {0} pardon <name> :Pardon player
     {0} pardonip <ip> :Pardon IP
     {0} whitelist :List whitelist and IP whitelist
+      aka `{0} wh`
     {0} whitelist [enable|disable] :Enable/disable whitelist
     {0} whitelist [enableip|disableip] :Enable/disable IP whitelist
     {0} allow <name> :Add player name to whitelist
     {0} allowip <ip> :Add IP to IP whitelist
     {0} remove <name> :Remove player name from whitelist
+      aka `{0} rm`
     {0} removeip <ip> :Remove IP from IP whitelist
+      aka `{0} rmip`
   message:
     error:
-      must_be_ip: Argument error, must be a ip address/network
+      must_be_ip: Argument error, must be a vaild IP address/network
+    warn:
+      port_might_same: "Minecraft server-port \"{0[0]}:{0[1]}\" might as same as loginproxy's [{1.port}, {1.ipv6_port}]"
     response:
       player:
         already_banned: Player {0} already banned

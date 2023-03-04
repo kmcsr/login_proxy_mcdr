@@ -1,9 +1,11 @@
 
+from typing import TypeVar
+
 import mcdreforged.api.all as MCDR
 
 from kpi.command import *
 
-from .globals import *
+from .configs import *
 from .utils import *
 from .api import *
 
@@ -20,10 +22,12 @@ def tr_res(key, *args, **kwargs):
 def parse_network_or_error(source: MCDR.CommandSource, ip: str):
 	try:
 		return IPNetwork(ip)
-	except ValueError as e:
+	except ValueError:
 		send_message(source, MSG_ID,
 			MCDR.RText(tr('message.error.must_be_ip'), color=MCDR.RColor.red, styles=MCDR.RStyle.underlined))
 		return None
+
+Self = TypeVar("Self", bound="Commands")
 
 class Commands(PermCommandSet):
 	Prefix = Prefix
@@ -48,7 +52,7 @@ class Commands(PermCommandSet):
 	def help(self, source: MCDR.CommandSource):
 		send_message(source, BIG_BLOCK_BEFOR, tr('help_msg', Prefix), BIG_BLOCK_AFTER, sep='\n')
 
-	@Literal('list')
+	@Literal(['list', 'ls'])
 	def list(self, source: MCDR.CommandSource):
 		send_message(source, BIG_BLOCK_BEFOR)
 		send_message(source, 'Connected players:')
@@ -57,9 +61,11 @@ class Commands(PermCommandSet):
 		if self.has_permission(source, 'query'):
 			gens.append(lambda c: new_command(c.ip, action=MCDR.RAction.suggest_command))
 		if self.has_permission(source, 'ban'):
-			gens.append(lambda c: new_command('{0} ban {1}'.format(Prefix, c.name), text='[BAN]', color=MCDR.RColor.red, styles=None))
+			gens.append(lambda c: new_command('{0} ban {1}'.format(Prefix, c.name),
+				text='[BAN]', color=MCDR.RColor.red, styles=None))
 		if self.has_permission(source, 'banip'):
-			gens.append(lambda c: new_command('{0} banip {1}'.format(Prefix, c.ip), text='[BANIP]', color=MCDR.RColor.red, styles=None))
+			gens.append(lambda c: new_command('{0} banip {1}'.format(Prefix, c.ip),
+				text='[BANIP]', color=MCDR.RColor.red, styles=None))
 		for c in conns:
 			send_message(source, '-',
 				new_command(c.name, action=MCDR.RAction.suggest_command, styles=None),
@@ -71,13 +77,16 @@ class Commands(PermCommandSet):
 	def query(self, source: MCDR.CommandSource, name: str):
 		c = get_proxy().get_conn(name)
 		if c is None:
-			send_message(source, MSG_ID, MCDR.RText('Connot find player {}'.format(name), color=MCDR.RColor.red))
+			send_message(source, MSG_ID, MCDR.RText('Connot find player {}'.
+				format(name), color=MCDR.RColor.red))
 			return
 		args = []
 		if self.has_permission(source, 'ban'):
-			args.append(new_command('{0} ban {1}'.format(Prefix, c.name), text='[BAN]', color=MCDR.RColor.red, styles=None))
+			args.append(new_command('{0} ban {1}'.format(Prefix, c.name),
+				text='[BAN]', color=MCDR.RColor.red, styles=None))
 		if self.has_permission(source, 'banip'):
-			args.append(new_command('{0} banip {1}'.format(Prefix, c.ip), text='[BANIP]', color=MCDR.RColor.red, styles=None))
+			args.append(new_command('{0} banip {1}'.format(Prefix, c.ip),
+				text='[BANIP]', color=MCDR.RColor.red, styles=None))
 		send_message(source, '-',
 			new_command(c.name, action=MCDR.RAction.suggest_command, styles=None),
 			new_command(c.ip, action=MCDR.RAction.suggest_command),
@@ -91,12 +100,15 @@ class Commands(PermCommandSet):
 		for p in self.lists.banned:
 			send_message(source, '-', p, new_command(
 				'{0} pardon {1}'.format(Prefix, p), text='[-]',
-				action=MCDR.RAction.suggest_command, color=MCDR.RColor.red).h('Pardon player {}'.format(p)))
+				action=MCDR.RAction.suggest_command, color=MCDR.RColor.red, styles=None).
+				h('Pardon player {}'.format(p)))
 		send_message(source, 'Banned ips:')
 		for p in self.lists.bannedip:
-			send_message(source, '-', p, new_command(
-				'{0} pardonip {1}'.format(Prefix, p), text='[-]',
-				action=MCDR.RAction.suggest_command, color=MCDR.RColor.red).h('Pardon ip {}'.format(p)))
+			sp = str(p)
+			send_message(source, '-', sp, new_command(
+				'{0} pardonip {1}'.format(Prefix, sp), text='[-]',
+				action=MCDR.RAction.suggest_command, color=MCDR.RColor.red, styles=None).
+				h('Pardon ip {}'.format(sp)))
 		send_message(source, BIG_BLOCK_AFTER)
 
 	@Literal('ban')
@@ -151,7 +163,7 @@ class Commands(PermCommandSet):
 	@Literal(['whitelist', 'wh'])
 	class whitelist(PermCommandSet):	
 		@call_with_root
-		def has_permission(self, src: MCDR.CommandSource, literal: str) -> bool:
+		def has_permission(self: Self, src: MCDR.CommandSource, literal: str) -> bool:
 			if literal in ('enable', 'enableip'):
 				return self.config.has_permission(src, 'enable')
 			if literal in ('disable', 'disableip'):
@@ -159,12 +171,12 @@ class Commands(PermCommandSet):
 			return True
 
 		@call_with_root
-		def default(self, source: MCDR.CommandSource):
+		def default(self: Self, source: MCDR.CommandSource):
 			send_message(source, BIG_BLOCK_BEFOR)
 			cfg = get_config()
 			send_message(source, 'Whitelist Level:', cfg.whitelist_level)
 			send_message(source, 'Allowed players',
-				'(enabled)' if cfg.enable_whitelist else '(disabled)',
+				'({})'.format(tr('word.enabled' if cfg.enable_whitelist else 'word.disabled')),
 				new_command('{0} whitelist disable'.format(Prefix), text='[{}]'.format(tr('button.disable')),
 					color=MCDR.RColor.red).h(tr('message.button.whitelist.disable'))
 				if cfg.enable_whitelist else
@@ -173,11 +185,14 @@ class Commands(PermCommandSet):
 				':')
 			gens = []
 			if self.has_permission(source, 'query'):
-				gens.append(lambda p: new_command('{0} query {1}'.format(Prefix, p), text='[Q]', color=MCDR.RColor.light_purple, styles=None))
+				gens.append(lambda p: new_command('{0} query {1}'.format(Prefix, p),
+					text='[Q]', color=MCDR.RColor.light_purple, styles=None))
 			if self.has_permission(source, 'ban'):
-				gens.append(lambda p: new_command('{0} ban {1}'.format(Prefix, p), text='[B]', color=MCDR.RColor.red, styles=None))
+				gens.append(lambda p: new_command('{0} ban {1}'.format(Prefix, p),
+					text='[B]', color=MCDR.RColor.red, styles=None))
 			if self.has_permission(source, 'remove'):
-				gens.append(lambda p: new_command('{0} remove {1}'.format(Prefix, p), text='[R]', color=MCDR.RColor.red))
+				gens.append(lambda p: new_command('{0} remove {1}'.format(Prefix, p),
+					text='[R]', color=MCDR.RColor.red))
 			for p in self.lists.allowed:
 				send_message(source, '-',
 					new_command(p, action=MCDR.RAction.suggest_command, styles=None),
@@ -193,59 +208,64 @@ class Commands(PermCommandSet):
 				':')
 			gens = []
 			if self.has_permission(source, 'banip'):
-				gens.append(lambda p: new_command('{0} banip {1}'.format(Prefix, p), text='[B]', color=MCDR.RColor.red, styles=None))
+				gens.append(lambda p: new_command('{0} banip {1}'.format(Prefix, p),
+					text='[B]', color=MCDR.RColor.red, styles=None))
 			if self.has_permission(source, 'removeip'):
-				gens.append(lambda p: new_command('{0} removeip {1}'.format(Prefix, p), text='[R]', color=MCDR.RColor.red))
+				gens.append(lambda p: new_command('{0} removeip {1}'.format(Prefix, p),
+					text='[R]', color=MCDR.RColor.red))
 			for p in self.lists.allowedip:
+				sp = str(p)
 				send_message(source, '-',
-					new_command(p, action=MCDR.RAction.suggest_command),
-					*[g(p) for g in gens])
+					new_command(sp, action=MCDR.RAction.suggest_command),
+					*[g(sp) for g in gens])
 			send_message(source, BIG_BLOCK_AFTER)
 
 		@Literal('enable')
 		@call_with_root
-		def enable(self, source: MCDR.CommandSource):
+		def enable(self: Self, source: MCDR.CommandSource):
 			if self.config.enable_whitelist:
-				send_message(source, MSG_ID, MCDR.RText(tr_res('whitelist.already_enabled'), color=MCDR.RColor.red))
+				send_message(source, MSG_ID,
+					MCDR.RText(tr_res('whitelist.already_enabled'), color=MCDR.RColor.red))
 				return
 			self.config.enable_whitelist = True
 			allows = self.lists.allowed
 			for c in get_proxy().get_conns():
-				if c.name not in allows:
+				if c.name not in allows and not self.config.check_player_level(c.name):
 					c.kick(self.config.messages['whitelist.name'], server=source.get_server())
 			send_message(source, MSG_ID, tr_res('whitelist.enabled'))
 
 		@Literal('disable')
 		@call_with_root
-		def disable(self, source: MCDR.CommandSource):
+		def disable(self: Self, source: MCDR.CommandSource):
 			if not self.config.enable_whitelist:
-				send_message(source, MSG_ID, MCDR.RText(tr_res('whitelist.already_disabled'), color=MCDR.RColor.red))
+				send_message(source, MSG_ID,
+					MCDR.RText(tr_res('whitelist.already_disabled'), color=MCDR.RColor.red))
 				return
 			self.config.enable_whitelist = False
 			send_message(source, MSG_ID, tr_res('whitelist.disabled'))
 
 		@Literal('enableip')
 		@call_with_root
-		def enableip(self, source: MCDR.CommandSource):
-			cfg = get_config()
-			if cfg.enable_ip_whitelist:
-				send_message(source, MSG_ID, MCDR.RText(tr_res('ipwhitelist.already_enabled'), color=MCDR.RColor.red))
+		def enableip(self: Self, source: MCDR.CommandSource):
+			if self.config.enable_ip_whitelist:
+				send_message(source, MSG_ID,
+					MCDR.RText(tr_res('ipwhitelist.already_enabled'), color=MCDR.RColor.red))
 				return
-			cfg.enable_ip_whitelist = True
-			allows = self.lists.allowedip
+			self.config.enable_ip_whitelist = True
 			for c in get_proxy().get_conns():
-				if c.ip not in allows:
+				if not self.lists.is_allowedip(c.ip) and not self.config.check_player_level(c.name):
 					c.kick(self.config.messages['whitelist.ip'], server=source.get_server())
 			send_message(source, MSG_ID, tr_res('ipwhitelist.enabled'))
 
 		@Literal('disableip')
 		@call_with_root
-		def disableip(self, source: MCDR.CommandSource):
-			cfg = get_config()
-			if not cfg.enable_ip_whitelist:
-				send_message(source, MSG_ID, MCDR.RText(tr_res('ipwhitelist.already_disabled'), color=MCDR.RColor.red))
+		def disableip(self: Self, source: MCDR.CommandSource):
+			self.config = get_config()
+			if not self.config.enable_ip_whitelist:
+				send_message(source, MSG_ID,
+					MCDR.RText(tr_res('ipwhitelist.already_disabled'), color=MCDR.RColor.red))
 				return
-			cfg.enable_ip_whitelist = False
+			self.config.enable_ip_whitelist = False
 			send_message(source, MSG_ID, tr_res('ipwhitelist.disabled'))
 
 	@Literal('allow')
@@ -274,7 +294,7 @@ class Commands(PermCommandSet):
 		except ValueError:
 			send_message(source, MSG_ID, tr_res('player.not_exists', name))
 			return
-		if self.config.enable_whitelist:
+		if self.config.enable_whitelist and not self.config.check_player_level(name):
 			conn = get_proxy().get_conn(name)
 			if conn is not None:
 				conn.kick(self.config.messages['whitelist.name'], server=source.get_server())
@@ -295,5 +315,6 @@ class Commands(PermCommandSet):
 			msg = self.config.messages['whitelist.ip']
 			conns = get_proxy().get_conns_by_network(ip0)
 			for c in conns:
-				c.kick(msg, server=server)
+				if not self.config.check_player_level(c.ip):
+					c.kick(msg, server=server)
 		send_message(source, MSG_ID, tr_res('ip.removed', ip0))

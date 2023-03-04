@@ -1,10 +1,13 @@
 
+import copy
 import ipaddress
-from typing import List, Dict, Any, Optional
+import typing
+from typing import List, Dict, Optional, ClassVar, Self, TypeVar
 
 import mcdreforged.api.all as MCDR
 
 from kpi.config import *
+from kpi.utils import LazyData
 from .utils import *
 
 __all__ = [
@@ -50,12 +53,15 @@ class LPConfig(Config, msg_id=MSG_ID):
 	messages: Dict[str, str] = {
 		'banned.name': 'Your account has been banned',
 		'banned.ip': 'Your ip has been banned',
-		'whitelist.name': 'Your account not in the whitelist',
-		'whitelist.ip': 'Your ip not in the whitelist',
+		'whitelist.name': 'Your account is not in the whitelist',
+		'whitelist.ip': 'Your ip is not in the whitelist',
 	}
 
+	def check_player_level(self, name: str) -> bool:
+		return get_server_instance().get_permission_level(name) >= self.whitelist_level
+
 class IPNetwork(JSONSerializable):
-	def __init__(self, ip: str = None):
+	def __init__(self, ip: str | None = None):
 		self._v = None if ip is None else ipaddress.ip_network(ip)
 
 	@property
@@ -86,6 +92,11 @@ class IPNetwork(JSONSerializable):
 
 	def __iter__(self):
 		return iter(self.v)
+
+	def __contains__(self, other):
+		if isinstance(other, (ipaddress.IPv4Address, ipaddress.IPv6Address)):
+			return other in self.v
+		return False
 
 	def __str__(self):
 		return str(self.v)
@@ -138,8 +149,9 @@ class IPNetwork(JSONSerializable):
 			return self.v > other.v
 		return self.v > other
 
+@typing.final
 class ListConfig(JSONStorage):
-	_instance = None
+	_instance: ClassVar[Optional[Self]] = None
 
 	banned: List[str] = []
 	allowed: List[str] = []
@@ -150,7 +162,7 @@ class ListConfig(JSONStorage):
 		super().__init__(*args, sync_update=sync_update, **kwargs)
 
 	@classmethod
-	def instance(cls):
+	def instance(cls) -> Optional[Self]:
 		return cls._instance
 
 	def is_bannedip(self, ip):
@@ -180,7 +192,7 @@ def init(server: MCDR.PluginServerInterface):
 	LazyData.load(BIG_BLOCK_BEFOR, metadata)
 	LazyData.load(BIG_BLOCK_AFTER, metadata)
 	LPConfig.init_instance(server, load_after_init=True)
-	ListConfig._instance = ListConfig(server, 'list.json', load_after_init=True)
+	ListConfig._instance = ListConfig(server, 'list.json', sync_update=True, load_after_init=True)
 
 def destory(server: MCDR.PluginServerInterface):
 	cfg = get_config()

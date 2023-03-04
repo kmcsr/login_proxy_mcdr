@@ -1,20 +1,20 @@
 
-import io
-import os
-import json
-import uuid
-import socket
-import traceback
 import functools
+import ipaddress
+import os
+import socket
 import threading
 import time
+import traceback
 from math import *
+from typing import Any
 
 import mcdreforged.api.all as MCDR
 
 from kpi.config import Properties
+from kpi.utils import LockedData
 from .constants import *
-from .globals import *
+from .configs import *
 from .utils import *
 from .encoder import *
 
@@ -25,10 +25,8 @@ __all__ = [
 PROTOCOL_1_19 = 759
 PROTOCOL_1_19_2 = 760
 
-class ProxyServer: pass
-
 class Conn:
-	def __init__(self, name: str, addr: tuple[str, int], conn, server: ProxyServer):
+	def __init__(self, name: str, addr: tuple[str, int], conn, server: 'ProxyServer'):
 		self._name = name
 		self.__addr = addr
 		self.__conn = conn
@@ -49,7 +47,7 @@ class Conn:
 		return self.__addr[0]
 
 	@property
-	def server(self) -> ProxyServer:
+	def server(self) -> 'ProxyServer':
 		return self.__server
 
 	@property
@@ -62,8 +60,9 @@ class Conn:
 		if self.__kicking is not None:
 			self.__kicking.cancel()
 
-	def kick(self, reason: str = 'You have been kicked', *, server: MCDR.ServerInterface = None):
-		if self.isalive:
+	def kick(self, reason: str = 'You have been kicked', *,
+		server: MCDR.ServerInterface | None = None):
+		if not self.isalive:
 			return False
 		if self.__kicking is not None:
 			return False
@@ -81,8 +80,6 @@ class Conn:
 		self.__conn.close()
 
 class ProxyServer:
-	LOGIN_PARSER = []
-
 	def __init__(self, server: MCDR.ServerInterface, base: str, config, whlist):
 		cls = self.__class__
 		self.__mcdr_server = server
@@ -90,14 +87,21 @@ class ProxyServer:
 		self.__config = config
 		self.__whlist = whlist
 		self._properties = Properties(os.path.join(self._base, 'server.properties'))
-		self._server_addr = (self._properties.get_str('server-ip', '127.0.0.1'), self._properties.get_int('server-port', 25565))
+		self._server_addr = (
+			self._properties.get_str('server-ip', '127.0.0.1'),
+			self._properties.get_int('server-port', 25565))
+		if (self.config.proxy_addr.ip is not None and
+				self._server_addr[1] == self.config.proxy_addr.port) or \
+			(self.config.proxy_addr.ipv6 is not None and
+				self._server_addr[1] == self.config.proxy_addr.ipv6_port):
+			log_warn(tr('messages.warn.port_might_same', self.server_addr, self.config.proxy_addr))
 		self._modt = self._properties.get_str('motd', 'A Minecraft Server')
 		self._max_players = self._properties.get_int('max-players', 20)
 
 		self._on_login = [cls.default_onlogin]
 		self._on_ping = [cls.default_onping]
 		self._lock = threading.Condition(threading.Lock())
-		self.__sockets = []
+		self.__sockets: list[socket.socket] = []
 		self.__status = 0
 		self.__conns = LockedData({})
 
@@ -147,6 +151,14 @@ class ProxyServer:
 			conns = list(filter(lambda c: c.ip == ip, self.__conns.d.values()))
 			return conns
 
+	def get_conns_by_network(self, network) -> list[Conn]:
+		assert_instanceof(network, (str, ipaddress.IPv4Network, ipaddress.IPv6Network))
+		if isinstance(network, str):
+			network = ipaddress.ip_network(network)
+		with self.__conns:
+			conns = list(filter(lambda c: c.ip in network, self.__conns.d.values()))
+			return conns
+
 	@property
 	def on_login(self):
 		return self._on_login
@@ -176,7 +188,7 @@ class ProxyServer:
 				if self.__conns.d.pop(c.name, None) is not None:
 					c._set_close()
 		with self.__conns:
-			self.__conns.d[c.name] = c
+			self.__conns.d[name] = c
 		proxy_conn(conn, sokt, addr, final=final)
 		return True
 
@@ -186,7 +198,7 @@ class ProxyServer:
 			res['description'] = {
 				'text': self.modt,
 			}
-		if MCDR.ServerInterface.get_instance().is_server_startup():
+		if get_server_instance().is_server_startup():
 			sokt = self.new_connection(login_data)
 			debug('Forward ping connection')
 			waiter = proxy_conn(conn, sokt, addr)
@@ -327,14 +339,15 @@ class ProxyServer:
 					s.close()
 				self.__sockets = []
 
-	def handle(self, conn, addr: tuple[str, int]) -> bool:
+	def handle(self, conn, addr: tuple[str, int]):
 		try:
 			canceled: bool = False
 			def canceler():
 				nonlocal canceled
 				canceled = True
 			debug('Client [[{0[0]}]:{0[1]}] connecting'.format(addr))
-			MCDR.ServerInterface.get_instance().dispatch_event(ON_CONNECT, (self, conn, addr, canceler), on_executor_thread=False)
+			get_server_instance().dispatch_event(ON_CONNECT,
+				(self, conn, addr, canceler), on_executor_thread=False)
 			if canceled:
 				debug('Client [[{0[0]}]:{0[1]}] disconnected by event handler'.format(addr))
 				conn.close()
@@ -346,8 +359,10 @@ class ProxyServer:
 				if conn.recv(2) == b'\x01\xfa':
 					debug('Client [[{0[0]}]:{0[1]}] ping with 1.6 format'.format(addr))
 					self.handle_ping_1_6(conn, addr)
+			elif pkt is None:
+				raise RuntimeError('Unexpect packet with none data')
 			elif pid == 0x00:
-				login_data = {}
+				login_data: dict[str, Any] = {}
 				protocol = pkt.read_varint()
 				login_data['protocol'] = protocol
 				login_data['host'] = pkt.read_string()
@@ -361,6 +376,7 @@ class ProxyServer:
 						close_flag = not self.handle_ping_1_7(conn, addr, protocol, login_data)
 				elif state == 2:
 					pid, pkt = recv_package(conn)
+					assert pkt is not None
 					if pid == 0x00:
 						debug('Client [[{0[0]}]:{0[1]}] tring login'.format(addr))
 						close_flag = not self.handle_login(conn, addr, login_data, pkt)
@@ -411,7 +427,7 @@ class ProxyServer:
 			self.__mcdr_server.get_permission_level(name) < self.config.whitelist_level:
 			debug('Disconnected {1}[[{0[0]}]:{0[1]}] for name not in whilelist'.format(addr, name))
 			send_package(conn, 0x00, encode_json({
-				'text': config.messages['whitelist.name'],
+				'text': self.config.messages['whitelist.name'],
 			}))
 			return False
 
@@ -419,7 +435,8 @@ class ProxyServer:
 		def canceler():
 			nonlocal canceled
 			canceled = True
-		self.__mcdr_server.dispatch_event(ON_LOGIN, (self, conn, addr, name, login_data, canceler), on_executor_thread=False)
+		self.__mcdr_server.dispatch_event(ON_LOGIN,
+			(self, conn, addr, name, login_data, canceler), on_executor_thread=False)
 		if canceled:
 			return False
 
@@ -472,7 +489,8 @@ class ProxyServer:
 				'online': 0,
 			}
 		}
-		self.__mcdr_server.dispatch_event(ON_PING, (self, conn, addr, login_data, res), on_executor_thread=False)
+		self.__mcdr_server.dispatch_event(ON_PING,
+			(self, conn, addr, login_data, res), on_executor_thread=False)
 		for handle in self._on_ping:
 			if handle(self, conn, addr, login_data, res):
 				return False
@@ -480,6 +498,7 @@ class ProxyServer:
 		send_package(conn, 0x00, encode_json(res))
 		# recv ping packet
 		pid, pkt = recv_package(conn)
+		assert pkt is not None
 		if pid == 0x01:
 			d = pkt.read_long()
 			send_package(conn, 0x01, encode_long(d))
@@ -526,7 +545,7 @@ def forwarder(src, dst, addr, *, chunk_size: int = 1024 * 128, final=None): # ch
 
 def proxy_conn(c1, c2, addr, *, final=None, **kwargs):
 	cond = threading.Condition(threading.Lock())
-	finished: bool = False
+	finished = False
 	def waiter():
 		with cond:
 			if finished:

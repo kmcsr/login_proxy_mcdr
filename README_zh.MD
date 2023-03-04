@@ -12,6 +12,7 @@
 - 最好的离线登录白名单插件
 - 为MCDR最高级的白名单 ~~(没有之一)~~
 - 可扩展, 可以监听并自定义玩家登录事件
+- 支持IP network
 
 ## 依赖
 
@@ -28,6 +29,9 @@
 - 答: loginproxy白名单是基于*minecraft服务端连接协议*实现的, **与原版白名单不冲突**.
     您**无法**通过原版白名单指令控制本插件, 本插件也**不会影响到原版白名单的工作**.
     如果您**同时启用**了*本插件白名单*与*原版白名单(或者其他插件/mod的白名单)*, 您必须保证玩家**同时存在每个白名单列表中**才能进行游戏.
+
+- 问: 服务端无法启动怎么办?
+- 答: 请确保minecraft服务端IP或端口与loginproxy端口不重复.
 
 ## 如何安装&配置
 
@@ -92,8 +96,8 @@
     "messages": { // 一些提示消息
         "banned.name": "Your account has been banned", // 当玩家名被ban的时候提示
         "banned.ip": "Your ip has been banned", // 当玩家IP被ban的时候提示
-        "whitelist.name": "Your account not in the whitelist", // 当玩家名不在白名单的时候提示
-        "whitelist.ip": "Your ip not in the whitelist" // 当玩家名IP不在白名单的时候提示
+        "whitelist.name": "Your account is not in the whitelist", // 当玩家名不在白名单的时候提示
+        "whitelist.ip": "Your ip is not in the whitelist" // 当玩家名IP不在白名单的时候提示
     }
 }
 ```

@@ -1,0 +1,18 @@
+
+[tool.ruff]
+
+ignore = [
+	"F403",
+	"F405",
+	"E701",
+]
+
+line-length = 100
+
+[tool.mypy]
+
+mypy_path = ":${MYPY_CONFIG_FILE_DIR}/../kpi_mcdr/"
+ignore_missing_imports = true
+disable_error_code = ['misc']
+
+[tool.poetry]

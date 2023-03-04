@@ -2,21 +2,23 @@
 import mcdreforged.api.all as MCDR
 
 from .utils import *
-from .globals import *
+from .configs import *
 from .server import *
 
 __all__ = [
 	'get_proxy'
 ]
 
-pxserver: ProxyServer = None
+pxserver: ProxyServer | None = None
 
 def get_proxy() -> ProxyServer:
+	assert pxserver is not None
 	return pxserver
 
 def on_load(server: MCDR.PluginServerInterface, prev_module):
 	global pxserver
-	pxserver = ProxyServer(server, server.get_mcdr_config()['working_directory'], get_config(), ListConfig.instance())
+	pxserver = ProxyServer(server, server.get_mcdr_config()['working_directory'],
+		get_config(), ListConfig.instance())
 	if prev_module is None:
 		pxserver.start(reuse=True)
 	else:
