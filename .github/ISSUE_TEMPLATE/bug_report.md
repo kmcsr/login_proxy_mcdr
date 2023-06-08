@@ -23,14 +23,38 @@ Steps to reproduce the behavior:
 3.
 
 **Relative Plugins / Mods**
-- List all MCDR plugins and mods (both client and server side) that will cause connection problem
+<!-- 
+List all MCDR plugins and mods (both client and server side) that will cause connection problem
+-->
+
 - example_plugin@1.2.3
 
 **Expected behavior**
 A clear and concise description of what you expected to happen.
 
+**Config**
+<!-- Paste your config inside the ``` block below -->
+<details>
+
+```json
+
+```
+
+</details>
+
+**Logs**
+<!-- Paste your logs inside the ``` block below -->
+<details>
+
+```
+
+```
+
+</details>
+
 **Screenshots**
-If applicable, add screenshots to help explain your problem.
+<!-- If applicable, add screenshots and logs to help explain your problem. -->
 
 **Additional context**
 Add any other context about the problem here.
+
