@@ -13,7 +13,7 @@ A clear and concise description of what the bug is.
 **Relative versions**
 - MCDReforged: 
 - login_proxy: 
-- Minecraft server: 
+- Minecraft server: (online-mode=)
 - Minecraft client: 
 
 **To Reproduce**
