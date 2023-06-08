@@ -1,4 +1,6 @@
 
+import abc
+import enum
 import functools
 import ipaddress
 import os
@@ -6,8 +8,10 @@ import socket
 import threading
 import time
 import traceback
+import zlib
+from abc import abstractmethod
 from math import *
-from typing import Any
+from typing import final, Any, Self, Callable
 
 import mcdreforged.api.all as MCDR
 
@@ -19,20 +23,78 @@ from .utils import *
 from .encoder import *
 
 __all__ = [
-	'ProxyServer', 'Conn'
+	# 'ServerStatus',
+	'ConnStatus', 'Conn',
+	'ProxyServer',
 ]
 
-PROTOCOL_1_19 = 759
-PROTOCOL_1_19_2 = 760
+# class ServerStatus:
+# 	def __init__(self, version: str, protocol: int,
+# 		max_player: int, online_player: int, sample_players: list[dict],
+# 		description: dict, favicon: str | None,
+# 		enforcesSecureChat: bool):
+# 		self.version = version
+# 		self.protocol = protocol
+# 		self.max_player = max_player
+# 		self.online_player = online_player
+# 		self.sample_players = sample_players
+# 		self.description = description
+# 		self.favicon = favicon
+# 		self.enforcesSecureChat = False
+
+# 	def to_json(self) -> dict:
+# 		res: dict = {
+# 			'version': {
+# 				'name': self.version,
+# 				'protocol': self.protocol,
+# 			},
+# 			'players': {
+# 				'max': self.max_player,
+# 				'online': self.online_player,
+# 				'sample': self.sample_players,
+# 			},
+# 			'description': self.description,
+# 		}
+# 		if self.enforcesSecureChat:
+# 			res['enforcesSecureChat'] = True
+# 		return res
+
+# 	@classmethod
+# 	def from_json(cls, value: dict) -> Self:
+# 		version = value['version']['name']
+# 		protocol = value['version']['protocol']
+# 		max_player = value['players']['max']
+# 		online_player = value['players']['online']
+# 		sample_players = value['players'].get('sample', [])
+# 		description = value['description']
+# 		favicon = value.get('favicon', None)
+# 		enforcesSecureChat = value.get('enforcesSecureChat', False)
+# 		return cls(version, protocol,
+# 			max_player, online_player, sample_players,
+# 			description, favicon,
+# 			enforcesSecureChat)
+
+class ConnStatus(int, enum.Enum):
+	HANDSHAKING = 0
+	STATUS      = 1
+	LOGIN       = 2
+	PLAY        = 3
 
 class Conn:
-	def __init__(self, name: str, addr: tuple[str, int], conn, server: 'ProxyServer'):
+	def __init__(self, name: str, addr: tuple[str, int], conn, server: 'ProxyServer', conn2, login_data: dict):
 		self._name = name
-		self.__addr = addr
-		self.__conn = conn
-		self.__server = server
-		self.__alive = True
-		self.__kicking = None
+		self._addr = addr
+		self._conn = conn
+		self._conn2 = conn2
+		self._login_data = login_data
+		self._protocol = login_data['protocol']
+		self._status = ConnStatus.HANDSHAKING
+		self._compressed = False
+		self._compress_threshold = -1
+		self._secrect = None
+		self._server = server
+		self._alive = True
+		self._kicking = None
 
 	@property
 	def name(self) -> str:
@@ -40,44 +102,136 @@ class Conn:
 
 	@property
 	def addr(self) -> tuple[str, int]:
-		return self.__addr
+		return self._addr
 
 	@property
 	def ip(self) -> str:
-		return self.__addr[0]
+		return self._addr[0]
+
+	@property
+	def conn(self):
+		return self._conn
+
+	@property
+	def conn2(self):
+		return self._conn2
+
+	@property
+	def login_data(self) -> dict:
+		return self._login_data
+
+	@property
+	def protocol(self) -> int:
+		return self._protocol
+
+	@property
+	def status(self) -> ConnStatus:
+		return self._status
+
+	@status.setter
+	def status(self, status: ConnStatus):
+		self._status = status
+
+	@property
+	def compressed(self) -> bool:
+		return self._compressed
+
+	@property
+	def compress_threshold(self) -> int:
+		return self._compress_threshold
+
+	@compress_threshold.setter
+	def compress_threshold(self, compress_threshold: int):
+		self._compressed = compress_threshold >= 0
+		self._compress_threshold = compress_threshold
+
+	def _recvpkt(self, conn) -> PacketReader:
+		leng = recv_varint(conn)
+		leng1 = leng
+		data_leng = 0
+		if self.compressed:
+			data_leng, size = recv_varint2(conn)
+			leng -= size
+		debug(f'Recving a packet; leng={leng}; compressed={self.compressed}; data_leng={data_leng}')
+		data = b''
+		while len(data) < leng:
+			data += conn.recv(leng - len(data))
+		if data_leng > 0:
+			try:
+				data = zlib.decompress(data)
+			except zlib.error as e:
+				debug(f'Compressed data: {repr(data)}')
+				raise
+		return PacketReader(data)
+
+	def recvpkt(self) -> PacketReader:
+		"""
+		Recv packet from the client
+		"""
+		return self._recvpkt(self.conn)
+
+	def recvpkt2(self) -> PacketReader:
+		"""
+		Recv packet from the server
+		"""
+		return self._recvpkt(self.conn2)
+
+	def _sendpkt(self, conn, data: bytes, pid: int | None):
+		if pid is not None:
+			data = encode_varint(pid) + data
+		if self.compressed:
+			data_leng = 0
+			if len(data) > self.compress_threshold:
+				data_leng = len(data)
+				data = zlib.compress(data)
+			data = encode_varint(data_leng) + data
+		conn.sendall(encode_varint(len(data)))
+		conn.sendall(data)
+
+	def sendpkt(self, data: bytes, pid: int | None):
+		"""
+		Send packet to the client
+		"""
+		self._sendpkt(self.conn, data, pid)
+
+	def sendpkt2(self, data: bytes, pid: int | None):
+		"""
+		Send packet to the server
+		"""
+		self._sendpkt(self.conn2, data, pid)
 
 	@property
 	def server(self) -> 'ProxyServer':
-		return self.__server
+		return self._server
 
 	@property
 	def isalive(self) -> bool:
-		return self.__alive
+		return self._alive
 
 	def _set_close(self):
-		assert self.__alive
-		self.__alive = False
-		if self.__kicking is not None:
-			self.__kicking.cancel()
+		assert self._alive
+		self._alive = False
+		if self._kicking is not None:
+			self._kicking.cancel()
 
 	def kick(self, reason: str = 'You have been kicked', *,
 		server: MCDR.ServerInterface | None = None):
 		if not self.isalive:
 			return False
-		if self.__kicking is not None:
+		if self._kicking is not None:
 			return False
 		if server is None:
 			server = self.server.config.server
 		if self.server.config.kick_cmd is not None and len(self.server.config.kick_cmd) > 0:
 			server.execute(self.server.config.kick_cmd.format(name=self.name, reason=reason))
-			self.__kicking = new_timer(5.0, self.disconnect, name='lp_defer_close')
+			self._kicking = new_timer(5.0, self.disconnect, name='lp_defer_close')
 		else:
 			self.disconnect()
 		return True
 
 	def disconnect(self):
 		log_info('Forced disconnect player {0}[{1[0]}:{1[1]}]'.format(self.name, self.addr))
-		self.__conn.close()
+		self.conn.close()
 
 class ProxyServer:
 	def __init__(self, server: MCDR.ServerInterface, base: str, config, whlist):
@@ -103,7 +257,7 @@ class ProxyServer:
 		self._lock = threading.Condition(threading.Lock())
 		self.__sockets: list[socket.socket] = []
 		self.__status = 0
-		self.__conns = LockedData({})
+		self._conns = LockedData({})
 
 	@property
 	def base(self):
@@ -138,25 +292,25 @@ class ProxyServer:
 		return self._max_players
 
 	def get_conns(self) -> list[Conn]:
-		with self.__conns:
-			conns = list(self.__conns.d.values())
+		with self._conns:
+			conns = list(self._conns.d.values())
 			return conns
 
 	def get_conn(self, name: str) -> Conn:
-		with self.__conns:
-			return self.__conns.d.get(name, None)
+		with self._conns:
+			return self._conns.d.get(name, None)
 
 	def get_conns_by_ip(self, ip: str) -> list[Conn]:
-		with self.__conns:
-			conns = list(filter(lambda c: c.ip == ip, self.__conns.d.values()))
+		with self._conns:
+			conns = list(filter(lambda c: c.ip == ip, self._conns.d.values()))
 			return conns
 
 	def get_conns_by_network(self, network) -> list[Conn]:
 		assert_instanceof(network, (str, ipaddress.IPv4Network, ipaddress.IPv6Network))
 		if isinstance(network, str):
 			network = ipaddress.ip_network(network)
-		with self.__conns:
-			conns = list(filter(lambda c: c.ip in network, self.__conns.d.values()))
+		with self._conns:
+			conns = list(filter(lambda c: c.ip in network, self._conns.d.values()))
 			return conns
 
 	@property
@@ -182,13 +336,13 @@ class ProxyServer:
 		log_info('Player {0}[[{1[0]}]:{1[1]}] trying to join'.format(name, addr))
 		sokt = self.new_connection(login_data)
 
-		c = Conn(name, addr, conn, self)
+		c = Conn(name, addr, conn, self, sokt, login_data)
 		def final():
-			with self.__conns:
-				if self.__conns.d.pop(c.name, None) is not None:
+			with self._conns:
+				if self._conns.d.pop(c.name, None) is not None:
 					c._set_close()
-		with self.__conns:
-			self.__conns.d[name] = c
+		with self._conns:
+			self._conns.d[name] = c
 		proxy_conn(conn, sokt, addr, final=final)
 		return True
 
@@ -221,7 +375,7 @@ class ProxyServer:
 		if login_data['state'] == 1:
 			send_package(sokt, 0x00, b'')
 		elif login_data['state'] == 2:
-			if protocol >= PROTOCOL_1_19:
+			if protocol >= Protocol.V1_19:
 				send_package(sokt, 0x00,
 					encode_string(login_data['name']) +
 					((
@@ -232,7 +386,7 @@ class ProxyServer:
 							encode_varint(len(login_data['sign'])) +
 							login_data['sign']
 						) if login_data['has_sig'] else b'')
-					) if protocol <= PROTOCOL_1_19_2 else b'') +
+					) if protocol <= Protocol.V1_19_2 else b'') +
 					encode_bool(login_data['has_uuid']) +
 					(login_data['uuid'].bytes if login_data['has_uuid'] else b'')
 				)
@@ -308,31 +462,31 @@ class ProxyServer:
 			if self.__status != 1:
 				return
 			self.__status = 2
-		with self.__conns:
-			for c in self.__conns.d.values():
-				c.kick('MCDR Login Proxy stopping')
+		with self._conns:
+			for c in self._conns.d.values():
+				c.kick('MCDR: Login Proxy is stopping')
 		for _ in range(30): # wait for 3.0 seconds
-			if len(self.__conns) == 0:
+			if len(self._conns.d) == 0:
 				break
 			time.sleep(0.1)
 		else:
-			with self.__conns:
-				for c in self.__conns.d.values():
+			with self._conns:
+				for c in self._conns.d.values():
 					c.disconnect()
-				self.__conns.d.clear()
+				self._conns.d.clear()
 		with self._lock:
 			assert self.__status == 2
 			for s in self.__sockets:
 				s.close()
 			self.__sockets = []
-			self._lock.wait()
-			assert self.__status == 0
+			# self._lock.wait() # probably will fix #2
+			# assert self.__status == 0
 
 	def __del__(self):
-		with self.__conns:
-			for c in self.__conns.d.values():
+		with self._conns:
+			for c in self._conns.d.values():
 				c.disconnect()
-			self.__conns.d.clear()
+			self._conns.d.clear()
 		with self._lock:
 			if self.__status == 2:
 				for s in self.__sockets:
@@ -354,14 +508,14 @@ class ProxyServer:
 				return
 
 			close_flag: bool = True
-			pid, pkt = recv_package(conn)
-			if pid == 0xfe:
+			pkt = recv_package(conn)
+			if pkt.id == 0xfe:
 				if conn.recv(2) == b'\x01\xfa':
 					debug('Client [[{0[0]}]:{0[1]}] ping with 1.6 format'.format(addr))
 					self.handle_ping_1_6(conn, addr)
 			elif pkt is None:
 				raise RuntimeError('Unexpect packet with none data')
-			elif pid == 0x00:
+			elif pkt.id == 0x00:
 				login_data: dict[str, Any] = {}
 				protocol = pkt.read_varint()
 				login_data['protocol'] = protocol
@@ -370,14 +524,13 @@ class ProxyServer:
 				state = pkt.read_varint()
 				login_data['state'] = state
 				if state == 1:
-					pid, _ = recv_package(conn)
-					if pid == 0x00:
+					pkt = recv_package(conn)
+					if pkt.id == 0x00:
 						debug('Client [[{0[0]}]:{0[1]}] ping with 1.7 format'.format(addr))
 						close_flag = not self.handle_ping_1_7(conn, addr, protocol, login_data)
 				elif state == 2:
-					pid, pkt = recv_package(conn)
-					assert pkt is not None
-					if pid == 0x00:
+					pkt = recv_package(conn)
+					if pkt.id == 0x00:
 						debug('Client [[{0[0]}]:{0[1]}] tring login'.format(addr))
 						close_flag = not self.handle_login(conn, addr, login_data, pkt)
 			if close_flag:
@@ -392,7 +545,7 @@ class ProxyServer:
 			conn.close()
 			raise
 
-	def handle_login(self, conn, addr: tuple[str, int], login_data: dict, pkt: Packet) -> bool:
+	def handle_login(self, conn, addr: tuple[str, int], login_data: dict, pkt: PacketReader) -> bool:
 		cls = self.__class__
 
 		if self.whlist.is_bannedip(addr[0]):
@@ -409,7 +562,7 @@ class ProxyServer:
 			return False
 
 		protocol = login_data['protocol']
-		if protocol >= PROTOCOL_1_19:
+		if protocol >= Protocol.V1_19:
 			cls.login_parser_1_19(pkt, login_data)
 		else:
 			cls.login_parser_1_8(pkt, login_data)
@@ -449,23 +602,24 @@ class ProxyServer:
 		return False
 
 	@staticmethod
-	def login_parser_1_8(pkt: Packet, login_data: dict):
+	def login_parser_1_8(pkt: PacketReader, login_data: dict):
 		login_data['name'] = pkt.read_string()
 
 	@staticmethod
-	def login_parser_1_19(pkt: Packet, login_data: dict):
+	def login_parser_1_19(pkt: PacketReader, login_data: dict):
 		login_data['name'] = pkt.read_string()
-		if login_data['protocol'] <= PROTOCOL_1_19_2:
+		if login_data['protocol'] <= Protocol.V1_19_2:
 			has_sig = pkt.read_bool()
 			login_data['has_sig'] = has_sig
 			if has_sig:
 				login_data['timestamp'] = pkt.read_long()
 				login_data['pubkey'] = pkt.read(pkt.read_varint())
 				login_data['sign'] = pkt.read(pkt.read_varint())
-		has_uuid = pkt.read_bool()
-		login_data['has_uuid'] = has_uuid
-		if has_uuid:
-			login_data['uuid'] = pkt.read_uuid()
+		if login_data['protocol'] > Protocol.V1_19: # to fix issue #1, maybe?
+			has_uuid = pkt.read_bool()
+			login_data['has_uuid'] = has_uuid
+			if has_uuid:
+				login_data['uuid'] = pkt.read_uuid()
 
 	def handle_ping_1_7(self, conn, addr, protocol: int, login_data: dict):
 		if self.whlist.is_bannedip(addr[0]):
@@ -497,9 +651,8 @@ class ProxyServer:
 
 		send_package(conn, 0x00, encode_json(res))
 		# recv ping packet
-		pid, pkt = recv_package(conn)
-		assert pkt is not None
-		if pid == 0x01:
+		pkt = recv_package(conn)
+		if pkt.id == 0x01:
 			d = pkt.read_long()
 			send_package(conn, 0x01, encode_long(d))
 		return False

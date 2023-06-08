@@ -1,8 +1,11 @@
 
 import mcdreforged.api.all as MCDR
 
+from .protocols import Protocol
+
 __all__ = [
-	'ON_CONNECT', 'ON_LOGIN', 'ON_PING'
+	'ON_CONNECT', 'ON_LOGIN', 'ON_PING',
+	'Protocol',
 ]
 
 ON_CONNECT = MCDR.LiteralEvent('login_proxy.on.connect')

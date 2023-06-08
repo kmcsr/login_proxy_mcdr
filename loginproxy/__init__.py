@@ -6,12 +6,18 @@ from .constants import *
 from . import configs
 from .utils import *
 from . import commands as CMD
+from .encoder import DecodeError, PacketReader, PacketBuffer, BitSet
+from . import server
+from .server import *
 from . import api
 from .api import *
 
-__all__ = []
+__all__ = [
+	'DecodeError', 'PacketReader', 'PacketBuffer', 'BitSet',
+]
 
 __all__.extend(api.__all__)
+__all__.extend(server.__all__)
 __all__.extend(constants.__all__)
 
 def on_load(server: MCDR.PluginServerInterface, prev_module):

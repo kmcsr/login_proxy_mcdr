@@ -5,17 +5,25 @@ import uuid
 
 from kpi.utils import assert_instanceof
 
+from .structs import *
+
 __all__ = [
 	'DecodeError',
-	'encode_short', 'encode_int', 'encode_long', 'encode_bool',
+	'encode_byte', 'encode_short', 'encode_int', 'encode_long', 'encode_bool',
 	'encode_varint', 'encode_string', 'encode_json',
 	'send_package',
-	'recv_byte', 'recv_package', 'Packet',
+	'recv_byte', 'recv_varint', 'recv_varint2', 'recv_package',
+	'PacketReader', 'PacketBuffer',
+	'BitSet',
 ]
 
 class DecodeError(Exception):
-	def __init__(self, reason: str):
-		super().__init__(reason)
+	def __init__(self, reason: str, got, require):
+		super().__init__(reason + f', got {got} but require {require}')
+
+def encode_byte(n: int) -> bytes:
+	assert 0 <= n and n <= 0xff
+	return n.to_bytes(1, byteorder='big')
 
 def encode_short(n: int) -> bytes:
 	assert 0 <= n and n <= 0xffff
@@ -65,40 +73,99 @@ def recv_byte(c) -> int:
 	except IndexError:
 		raise ConnectionAbortedError() from None
 
-class Packet:
-	def __init__(self, data: bytes):
+def recv_varint2(c) -> tuple[int, int]:
+	leng = 0
+	num = 0
+	i = 0
+	while True:
+		n = recv_byte(c)
+		leng += 1
+		num |= (n & 0x7f) << i
+		if n & 0x80 == 0:
+			break
+		i += 7
+		if i >= 32:
+			raise DecodeError('VarInt too big', '32-bit', str(i) + '-bit')
+	return num, leng
+
+def recv_varint(c) -> int:
+	return recv_varint2(c)[0]
+
+class PacketReader:
+	def __init__(self, data: bytes, id: int | None = None):
 		self._size = len(data)
+		self._data = data
 		self._reader = io.BytesIO(data)
+		self._id = self.read_varint() if id is None else id
 
 	@property
-	def size(self):
+	def size(self) -> int:
 		return self._size
 
 	@property
-	def reader(self):
+	def reader(self) -> io.BytesIO:
 		return self._reader
 
-	def read(self, n: int, *, err='buf length wrong'):
+	@property
+	def data(self) -> bytes:
+		return self._data
+
+	@property
+	def id(self) -> int:
+		return self._id
+
+	@property
+	def remain(self) -> int:
+		return len(self.data) - self.reader.seek(0, io.SEEK_CUR)
+
+	def read(self, n: int = -1, *, err='buf remain not enough') -> bytes:
 		v = self._reader.read(n)
-		if len(v) != n:
-			raise DecodeError(err)
+		if n >= 0:
+			if len(v) > n:
+				raise RuntimeError('Read returned too much data')
+			if len(v) < n:
+				raise DecodeError(err, len(v), n)
 		return v
 
 	def read_byte(self) -> int:
 		v = self.read(1, err='EOF')
-		return v[0]
+		return parse_byte(v)
+
+	def read_ubyte(self) -> int:
+		v = self.read(1, err='EOF')
+		return parse_ubyte(v)
 
 	def read_short(self) -> int:
 		v = self.read(2, err='short length not correct')
-		return int.from_bytes(v, byteorder='big')
+		return parse_short(v)
+
+	def read_ushort(self) -> int:
+		v = self.read(2, err='short length not correct')
+		return parse_ushort(v)
 
 	def read_int(self) -> int:
 		v = self.read(4, err='int length not correct')
-		return int.from_bytes(v, byteorder='big')
+		return parse_int(v)
+
+	def read_uint(self) -> int:
+		v = self.read(4, err='int length not correct')
+		return parse_uint(v)
 
 	def read_long(self) -> int:
 		v = self.read(8, err='long length not correct')
-		return int.from_bytes(v, byteorder='big')
+		return parse_long(v)
+
+	def read_ulong(self) -> int:
+		v = self.read(8, err='long length not correct')
+		return parse_ulong(v)
+
+	def read_float(self) -> float:
+		v = self.read(4, err='float length not correct')
+		return parse_float(v)
+
+	def read_double(self) -> float:
+		v = self.read(8, err='double length not correct')
+		return parse_double(v)
 
 	def read_bool(self) -> bool:
 		v = self.read_byte()
@@ -113,8 +180,34 @@ class Packet:
 				break
 			i += 7
 			if i >= 32:
-				raise DecodeError('VarInt too big')
+				raise DecodeError('VarInt too big', '32-bit', str(i) + '-bit')
 		return n
+
+	def read_varlong(self) -> int:
+		n, i = 0, 0
+		while True:
+			bt = self.read_byte()
+			n |= (bt & 0x7f) << i
+			if bt & 0x80 == 0:
+				break
+			i += 7
+			if i >= 64:
+				raise DecodeError('VarLong too big', '64-bit', str(i) + '-bit')
+		return n
+
+	def read_pos_1_8(self) -> tuple[int, int, int]:
+		v = self.read_long()
+		x = (v >> 38) & 0x3ffffff
+		y = (v >> 26) & 0xfff
+		z = v & 0x3ffffff
+		return x, y, z
+
+	def read_pos_1_14(self) -> tuple[int, int, int]:
+		v = self.read_long()
+		x = (v >> 38) & 0x3ffffff
+		y = v & 0xfff
+		z = (v >> 12) & 0x3ffffff
+		return x, y, z
 
 	def read_string(self) -> str:
 		n = self.read_varint()
@@ -127,27 +220,159 @@ class Packet:
 		return json.loads(b.decode('utf8'))
 
 	def read_uuid(self) -> uuid.UUID:
-		v = self.read(16)
-		if len(v) != 16:
-			raise DecodeError('UUID length not correct')
+		v = self.read(16, err='UUID length not correct')
 		return uuid.UUID(bytes=v)
 
-def recv_package(c) -> tuple[int, Packet | None]:
+class PacketBuffer:
+	def __init__(self):
+		self._data = b''
+
+	@property
+	def data(self) -> bytes:
+		return self._data
+
+	def write(self, data: bytes):
+		self._data += data
+		return self
+
+	def write_byte(self, v: int):
+		self._data += ByteStruct.pack(v)
+		return self
+
+	def write_ubyte(self, v: int):
+		self._data += UByteStruct.pack(v)
+		return self
+
+	def write_short(self, v: int):
+		self._data += ShortStruct.pack(v)
+		return self
+
+	def write_ushort(self, v: int):
+		self._data += UShortStruct.pack(v)
+		return self
+
+	def write_int(self, v: int):
+		self._data += IntStruct.pack(v)
+		return self
+
+	def write_uint(self, v: int):
+		self._data += UIntStruct.pack(v)
+		return self
+
+	def write_long(self, v: int):
+		self._data += LongStruct.pack(v)
+		return self
+
+	def write_ulong(self, v: int):
+		self._data += ULongStruct.pack(v)
+		return self
+
+	def write_float(self, v :float):
+		self._data += FloatStruct.pack(v)
+		return self
+
+	def write_double(self, v :float):
+		self._data += DoubleStruct.pack(v)
+		return self
+
+	def write_bool(self, v: bool):
+		self._data += encode_bool(v)
+		return self
+
+	def write_varint(self, v: int):
+		assert v >> 32 == 0
+		self._data += encode_varint(v)
+		return self
+
+	def write_varlong(self, v: int):
+		assert v >> 64 == 0
+		self._data += encode_varint(v)
+		return self
+
+	def write_pos_1_8(self, v: tuple[int, int, int]):
+		x, y, z = v
+		self.write_long(((x & 0x3ffffff) << 38) | ((y & 0xfff) << 26) | (z & 0x3ffffff))
+		return self
+
+	def write_pos_1_14(self, v: tuple[int, int, int]):
+		x, y, z = v
+		self.write_long(((x & 0x3ffffff) << 38) | ((z & 0x3ffffff) << 12) | (y & 0xfff))
+		return self
+
+	def write_string(self, v: str):
+		b = v.encode('utf8')
+		self.write_varint(len(b)).write(b)
+		return self
+
+	def write_json(self, v: dict):
+		b = json.dumps(v).encode('utf8')
+		self.write_varint(len(b)).write(b)
+		return self
+
+	def write_uuid(self, v: uuid.UUID):
+		self.write(v.bytes)
+		return self
+
+class BitSet:
+	def __init__(self, value: list[int]):
+		self._value = value
+
+	@property
+	def value(self) -> list[int]:
+		m = 0
+		for n in reversed(self._value):
+			if not n:
+				break
+			m += 1
+		if m:
+			self._value = self._value[:-m]
+		return self._value
+
+	def __getitem__(self, index: int, /) -> bool:
+		i = index // 64
+		if i >= len(self._value):
+			return False
+		return bool(self._value[i] & (1 << (index % 64)))
+
+	def __setitem__(self, index: int, value: int, /):
+		i = index // 64
+		if i >= len(self._value):
+			self._value.extend(0 for _ in range(len(self._value), i + 1))
+		if value:
+			self._value[i] |= 1 << (index % 64)
+		else:
+			self._value[i] &= ~(1 << (index % 64))
+
+	def to_bytes(self, b: PacketBuffer):
+		b.write_varint(len(self.value))
+		for v in self.value:
+			b.write_long(v)
+
+	@classmethod
+	def parse_from(cls, r: PacketReader):
+		value = []
+		for _ in range(r.read_varint()):
+			v = r.read_long()
+			value.append(v)
+		return cls(value)
+
+def recv_package(c, *, forwardto=None) -> PacketReader:
 	plen, i = 0, 0
 	n = recv_byte(c)
 	if n == 0xfe:
-		return n, None
+		return PacketReader(b'', n)
 	while True:
 		plen |= (n & 0x7f) << i
 		if n & 0x80 == 0:
 			break
 		i += 7
 		if i >= 32:
-			raise DecodeError('VarInt too big')
+			raise DecodeError('VarInt too big', '32-bit', str(i) + '-bit')
 		n = recv_byte(c)
 	data = b''
 	while len(data) < plen:
-		data += c.recv(plen - len(data))
-	pkt = Packet(data)
-	pid = pkt.read_varint()
-	return pid, pkt
+		buf = c.recv(plen - len(data))
+		if forwardto is not None:
+			forwardto(buf)
+		data += buf
+	return PacketReader(data)
