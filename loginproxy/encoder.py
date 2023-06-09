@@ -22,19 +22,19 @@ class DecodeError(Exception):
 		super().__init__(reason + f', got {got} but require {require}')
 
 def encode_byte(n: int) -> bytes:
-	assert 0 <= n and n <= 0xff
+	assert 0 <= n and n <= 0xff, f'{hex(n)} is not in range [0, 0xff]'
 	return n.to_bytes(1, byteorder='big')
 
 def encode_short(n: int) -> bytes:
-	assert 0 <= n and n <= 0xffff
+	assert 0 <= n and n <= 0xffff, f'{hex(n)} is not in range [0, 0xffff]'
 	return n.to_bytes(2, byteorder='big')
 
 def encode_int(n: int) -> bytes:
-	assert 0 <= n and n <= 0xffffffff
+	assert 0 <= n and n <= 0xffffffff, f'{hex(n)} is not in range [0, 0xffffffff]'
 	return n.to_bytes(4, byteorder='big')
 
 def encode_long(n: int) -> bytes:
-	assert 0 <= n and n <= 0xffffffffffffffff
+	assert 0 <= n and n <= 0xffffffffffffffff, f'{hex(n)} is not in range [0, 0xffffffffffffffff]'
 	return n.to_bytes(8, byteorder='big')
 
 def encode_bool(v: bool) -> bytes:
@@ -280,12 +280,12 @@ class PacketBuffer:
 		return self
 
 	def write_varint(self, v: int):
-		assert v >> 32 == 0
+		assert v >> 32 == 0, f'{hex(v)} is not in range'
 		self._data += encode_varint(v)
 		return self
 
 	def write_varlong(self, v: int):
-		assert v >> 64 == 0
+		assert v >> 64 == 0, f'{hex(v)} is not in range'
 		self._data += encode_varint(v)
 		return self
 
