@@ -18,7 +18,7 @@ login_proxy:
     {0} remove <name> :将玩家名从白名单移除
       `{0} rm`同
     {0} removeip <ip> :将IP从IP白名单移除
-      `{0} rm`同
+      `{0} rmip`同
   message:
     error:
       must_be_ip: 参数错误, 必须为合法IP地址或网络

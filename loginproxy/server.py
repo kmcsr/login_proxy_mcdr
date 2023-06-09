@@ -353,12 +353,15 @@ class ProxyServer:
 				'text': self.modt,
 			}
 		if get_server_instance().is_server_startup():
+			debug('Creating connection for ping...')
 			sokt = self.new_connection(login_data)
 			debug('Forward ping connection')
 			waiter = proxy_conn(conn, sokt, addr)
 			waiter()
 			debug('Ping connection finished')
 			return True
+		else:
+			debug('Server is not startup yet:', addr)
 		return False
 
 	def new_connection(self, login_data: dict):
@@ -387,8 +390,10 @@ class ProxyServer:
 							login_data['sign']
 						) if login_data['has_sig'] else b'')
 					) if protocol <= Protocol.V1_19_2 else b'') +
-					encode_bool(login_data['has_uuid']) +
-					(login_data['uuid'].bytes if login_data['has_uuid'] else b'')
+					((
+						encode_bool(login_data['has_uuid']) +
+						(login_data['uuid'].bytes if login_data['has_uuid'] else b'')
+					) if protocol >= Protocol.V1_19_1 else b'')
 				)
 			else:
 				send_package(sokt, 0x00,
@@ -526,7 +531,6 @@ class ProxyServer:
 				if state == 1:
 					pkt = recv_package(conn)
 					if pkt.id == 0x00:
-						debug('Client [[{0[0]}]:{0[1]}] ping with 1.7 format'.format(addr))
 						close_flag = not self.handle_ping_1_7(conn, addr, protocol, login_data)
 				elif state == 2:
 					pkt = recv_package(conn)
@@ -615,13 +619,15 @@ class ProxyServer:
 				login_data['timestamp'] = pkt.read_long()
 				login_data['pubkey'] = pkt.read(pkt.read_varint())
 				login_data['sign'] = pkt.read(pkt.read_varint())
-		if login_data['protocol'] > Protocol.V1_19: # to fix issue #1, maybe?
+		if login_data['protocol'] >= Protocol.V1_19_1: # Fix issue #1
 			has_uuid = pkt.read_bool()
 			login_data['has_uuid'] = has_uuid
 			if has_uuid:
 				login_data['uuid'] = pkt.read_uuid()
 
 	def handle_ping_1_7(self, conn, addr, protocol: int, login_data: dict):
+		debug('Client [[{0[0]}]:{0[1]}] ping with 1.7 format'.format(addr))
+
 		if self.whlist.is_bannedip(addr[0]):
 			send_package(conn, 0x00, encode_json({
 				'text': self.config.messages['banned.ip'],

@@ -173,13 +173,12 @@ class Commands(PermCommandSet):
 		@call_with_root
 		def default(self: Self, source: MCDR.CommandSource):
 			send_message(source, BIG_BLOCK_BEFOR)
-			cfg = get_config()
-			send_message(source, 'Whitelist Level:', cfg.whitelist_level)
+			send_message(source, 'Whitelist Level:', self.config.whitelist_level)
 			send_message(source, 'Allowed players',
-				'({})'.format(tr('word.enabled' if cfg.enable_whitelist else 'word.disabled')),
+				'({})'.format(tr('word.enabled' if self.config.enable_whitelist else 'word.disabled')),
 				new_command('{0} whitelist disable'.format(Prefix), text='[{}]'.format(tr('button.disable')),
 					color=MCDR.RColor.red).h(tr('message.button.whitelist.disable'))
-				if cfg.enable_whitelist else
+				if self.config.enable_whitelist else
 				new_command('{0} whitelist enable'.format(Prefix), text='[{}]'.format(tr('button.enable')),
 					color=MCDR.RColor.green).h(tr('message.button.whitelist.enable')),
 				':')
@@ -199,10 +198,10 @@ class Commands(PermCommandSet):
 					*[g(p) for g in gens])
 
 			send_message(source, 'Allowed ips',
-				'({})'.format(tr('word.enabled' if cfg.enable_ip_whitelist else 'word.disabled')),
+				'({})'.format(tr('word.enabled' if self.config.enable_ip_whitelist else 'word.disabled')),
 				new_command('{0} whitelist disableip'.format(Prefix), text='[{}]'.format(tr('button.disable')),
 					color=MCDR.RColor.red).h(tr('message.button.whitelist.disable_ip'))
-				if cfg.enable_ip_whitelist else
+				if self.config.enable_ip_whitelist else
 				new_command('{0} whitelist enableip'.format(Prefix), text='[{}]'.format(tr('button.enable')),
 					color=MCDR.RColor.green).h(tr('message.button.whitelist.enable_ip')),
 				':')
@@ -260,7 +259,6 @@ class Commands(PermCommandSet):
 		@Literal('disableip')
 		@call_with_root
 		def disableip(self: Self, source: MCDR.CommandSource):
-			self.config = get_config()
 			if not self.config.enable_ip_whitelist:
 				send_message(source, MSG_ID,
 					MCDR.RText(tr_res('ipwhitelist.already_disabled'), color=MCDR.RColor.red))
