@@ -525,7 +525,7 @@ class ProxyServer:
 				protocol = pkt.read_varint()
 				login_data['protocol'] = protocol
 				login_data['host'] = pkt.read_string()
-				login_data['port'] = pkt.read_short()
+				login_data['port'] = pkt.read_ushort()
 				state = pkt.read_varint()
 				login_data['state'] = state
 				if state == 1:
