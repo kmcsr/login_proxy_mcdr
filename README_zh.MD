@@ -6,6 +6,8 @@
 
 *如果本插件有用, 请给个star吧 :)*
 
+类似项目: <https://github.com/kmcsr/go-liter>
+
 ## 特性
 
 - 使用**反向代理**代理minecraft服务器**登录包**, *不必担心客户端绕开白名单*

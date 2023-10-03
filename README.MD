@@ -6,6 +6,8 @@
 
 *If it's useful, please give a star :)*
 
+Similar project: <https://github.com/kmcsr/go-liter>
+
 ## Feature
 
 - Use **reverse proxy** to proxy minecraft server **login package**, *clients will never bypassing the whitelist*
