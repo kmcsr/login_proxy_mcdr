@@ -23,7 +23,7 @@ login_proxy:
     error:
       must_be_ip: 参数错误, 必须为合法IP地址或网络
     warn:
-      port_might_same: "Minecraft server-port \"{0[0]}:{0[1]}\" might as same as loginproxy's [{1.port}, {1.ipv6_port}]"
+      port_might_same: "Minecraft 服务器端口 \"{0[0]}:{0[1]}\" 可能与 loginproxy 的端口 [{1.port}, {1.ipv6_port}] 重复, 请更换 server.properties 文件中的端口"
     response:
       player:
         already_banned: 玩家 {0} 已经被封禁了

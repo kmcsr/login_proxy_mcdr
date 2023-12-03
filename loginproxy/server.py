@@ -248,7 +248,7 @@ class ProxyServer:
 				self._server_addr[1] == self.config.proxy_addr.port) or \
 			(self.config.proxy_addr.ipv6 is not None and
 				self._server_addr[1] == self.config.proxy_addr.ipv6_port):
-			log_warn(tr('messages.warn.port_might_same', self.server_addr, self.config.proxy_addr))
+			log_warn(tr('message.warn.port_might_same', self.server_addr, self.config.proxy_addr))
 		self._modt = self._properties.get_str('motd', 'A Minecraft Server')
 		self._max_players = self._properties.get_int('max-players', 20)
 
