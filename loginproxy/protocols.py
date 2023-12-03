@@ -11,6 +11,8 @@ class Protocol(int, enum.Enum):
 			return super().__str__()
 		return self.name[1:].replace('__', '-').replace('_', '.')
 
+	V1_20_2 = 764
+	V1_20_1 = 763
 	V1_19_4 = 762
 	V1_19_3 = 761
 	V1_19_2 = 760

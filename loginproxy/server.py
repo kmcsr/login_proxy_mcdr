@@ -378,7 +378,12 @@ class ProxyServer:
 		if login_data['state'] == 1:
 			send_package(sokt, 0x00, b'')
 		elif login_data['state'] == 2:
-			if protocol >= Protocol.V1_19:
+			if protocol >= Protocol.V1_20_2:
+				send_package(sokt, 0x00,
+					encode_string(login_data['name']) +
+					login_data['uuid'].bytes
+				)
+			elif protocol >= Protocol.V1_19:
 				send_package(sokt, 0x00,
 					encode_string(login_data['name']) +
 					((
@@ -619,7 +624,9 @@ class ProxyServer:
 				login_data['timestamp'] = pkt.read_long()
 				login_data['pubkey'] = pkt.read(pkt.read_varint())
 				login_data['sign'] = pkt.read(pkt.read_varint())
-		if login_data['protocol'] >= Protocol.V1_19_1: # Fix issue #1
+		if login_data['protocol'] >= Protocol.V1_20_2:
+			login_data['uuid'] = pkt.read_uuid()
+		elif login_data['protocol'] >= Protocol.V1_19_1: # Fix issue #1
 			has_uuid = pkt.read_bool()
 			login_data['has_uuid'] = has_uuid
 			if has_uuid:
