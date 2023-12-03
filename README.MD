@@ -13,6 +13,10 @@ Similar project: <https://github.com/kmcsr/go-liter>
 - Use **reverse proxy** to proxy minecraft server **login package**, *clients will never bypassing the whitelist*
 - The best offline whitelist plugin
 
+## Current supported Minecraft version
+
+`1.8.x ~ 1.20.2`
+
 ## Dependencies
 
 | ID | Release Link |
