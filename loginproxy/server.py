@@ -454,14 +454,15 @@ class ProxyServer:
 			log_info('Proxy server listening at [{0}]:{1}'.format(ip, port))
 			self.__run(sock4)
 
-			sock6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-			if reuse:
-				sock6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-			sock6.bind((ip6, port6))
-			sock6.listen(ceil(self.max_players * 3 / 2))
-			self.__sockets.append(sock6)
-			log_info('Proxy server listening at [{0}]:{1}'.format(ip6, port6))
-			self.__run(sock6)
+			if ip6 is not None:
+				sock6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+				if reuse:
+					sock6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+				sock6.bind((ip6, port6))
+				sock6.listen(ceil(self.max_players * 3 / 2))
+				self.__sockets.append(sock6)
+				log_info('Proxy server listening at [{0}]:{1}'.format(ip6, port6))
+				self.__run(sock6)
 		except:
 			with self._lock:
 				self.__status = 0
