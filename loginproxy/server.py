@@ -257,8 +257,8 @@ class ProxyServer:
 		self._lock = threading.Condition(threading.Lock())
 		self.__sockets: list[socket.socket] = []
 		self.__status = 0
-		self._conns = {}
-		self._uconns = set() # underlying connections
+		self._conns: dict[str, Conn] = {}
+		self._uconns: set[socket.socket] = set() # underlying connections
 
 	@property
 	def base(self):
@@ -293,29 +293,28 @@ class ProxyServer:
 		return self._max_players
 
 	def get_conns(self) -> list[Conn]:
-		with self._conns:
-			conns = list(self._conns.d.values())
+		with self._lock:
+			conns = list(self._conns.values())
 			return conns
 
 	def get_conn_count(self) -> int:
-		with self._conns:
-			return len(self._conns.d)
+		return len(self._conns)
 
-	def get_conn(self, name: str) -> Conn:
-		with self._conns:
-			return self._conns.d.get(name, None)
+	def get_conn(self, name: str) -> Conn | None:
+		with self._lock:
+			return self._conns.get(name, None)
 
 	def get_conns_by_ip(self, ip: str) -> list[Conn]:
-		with self._conns:
-			conns = list(filter(lambda c: c.ip == ip, self._conns.d.values()))
+		with self._lock:
+			conns = [c for c in self._conns.values() if c.ip == ip]
 			return conns
 
 	def get_conns_by_network(self, network) -> list[Conn]:
 		assert_instanceof(network, (str, ipaddress.IPv4Network, ipaddress.IPv6Network))
 		if isinstance(network, str):
 			network = ipaddress.ip_network(network)
-		with self._conns:
-			conns = list(filter(lambda c: c.ip in network, self._conns.d.values()))
+		with self._lock:
+			conns = [c for c in self._conns.values() if c.ip in network]
 			return conns
 
 	def _add_uconn(self, conn):
@@ -498,7 +497,6 @@ class ProxyServer:
 			for s in self.__sockets:
 				s.close()
 			self.__sockets.clear()
-		with self._lock:
 			for c in self._conns.values():
 				c.kick('MCDR: Login Proxy is stopping')
 		for _ in range(30): # wait for 3.0 seconds
@@ -510,9 +508,10 @@ class ProxyServer:
 				for c in self._conns.values():
 					c.disconnect()
 				self._conns.clear()
-		for c in self._uconns:
-			c.close()
-		self._uconns.clear()
+		with self._lock:
+			for c in self._uconns:
+				c.close()
+			self._uconns.clear()
 
 	def __del__(self):
 		with self._lock:
@@ -730,6 +729,7 @@ def proxy_conn(c1, c2, addr, *, final=None, **kwargs):
 	cond = threading.Condition(threading.Lock())
 	finished = False
 	def waiter():
+		nonlocal finished
 		with cond:
 			if finished:
 				return
