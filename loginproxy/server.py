@@ -296,6 +296,10 @@ class ProxyServer:
 			conns = list(self._conns.d.values())
 			return conns
 
+	def get_conn_count(self) -> int:
+		with self._conns:
+			return len(self._conns.d)
+
 	def get_conn(self, name: str) -> Conn:
 		with self._conns:
 			return self._conns.d.get(name, None)
@@ -338,9 +342,11 @@ class ProxyServer:
 
 		c = Conn(name, addr, conn, self, sokt, login_data)
 		def final():
+			c.conn.close()
 			with self._conns:
 				if self._conns.d.pop(c.name, None) is not None:
 					c._set_close()
+			self.__mcdr_server.dispatch_event(ON_LOGOFF, (self, c), on_executor_thread=False)
 		with self._conns:
 			self._conns.d[name] = c
 		proxy_conn(conn, sokt, addr, final=final)
@@ -421,8 +427,8 @@ class ProxyServer:
 			log_error('Error when listening:', str(e))
 			traceback.print_exc()
 		finally:
+			sock.close()
 			with self._lock:
-				sock.close()
 				try:
 					self.__sockets.remove(sock)
 				except ValueError:
@@ -432,7 +438,7 @@ class ProxyServer:
 					self._lock.notify_all()
 
 	@new_thread
-	def start(self, reuse: bool = False):
+	def start(self):
 		with self._lock:
 			if self.__status != 0:
 				log_warn('Proxy server running')
@@ -446,8 +452,7 @@ class ProxyServer:
 			ip6 = ip6 if ip6 or ip6 is None else '::'
 
 			sock4 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			if reuse:
-				sock4.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+			sock4.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 			sock4.bind((ip, port))
 			sock4.listen(ceil(self.max_players * 3 / 2))
 			self.__sockets.append(sock4)
@@ -456,8 +461,7 @@ class ProxyServer:
 
 			if ip6 is not None:
 				sock6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-				if reuse:
-					sock6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+				sock6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 				sock6.bind((ip6, port6))
 				sock6.listen(ceil(self.max_players * 3 / 2))
 				self.__sockets.append(sock6)
@@ -471,8 +475,12 @@ class ProxyServer:
 	def stop(self):
 		with self._lock:
 			if self.__status != 1:
+				debug('stopping with status', self.__status)
 				return
 			self.__status = 2
+			for s in self.__sockets:
+				s.close()
+			self.__sockets.clear()
 		with self._conns:
 			for c in self._conns.d.values():
 				c.kick('MCDR: Login Proxy is stopping')
@@ -485,13 +493,6 @@ class ProxyServer:
 				for c in self._conns.d.values():
 					c.disconnect()
 				self._conns.d.clear()
-		with self._lock:
-			assert self.__status == 2
-			for s in self.__sockets:
-				s.close()
-			self.__sockets = []
-			# self._lock.wait() # probably will fix #2
-			# assert self.__status == 0
 
 	def __del__(self):
 		with self._conns:
@@ -502,7 +503,7 @@ class ProxyServer:
 			if self.__status == 2:
 				for s in self.__sockets:
 					s.close()
-				self.__sockets = []
+				self.__sockets.clear()
 
 	def handle(self, conn, addr: tuple[str, int]):
 		try:
@@ -546,7 +547,7 @@ class ProxyServer:
 			if close_flag:
 				conn.close()
 		except (ConnectionAbortedError, ConnectionResetError):
-			pass
+			conn.close()
 		except Exception as e:
 			log_warn('Error when handle[[{0[0]}]:{0[1]}]: {1}'.format(addr, str(e)))
 			traceback.print_exc()
