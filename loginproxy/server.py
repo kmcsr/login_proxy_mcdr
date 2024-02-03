@@ -16,7 +16,6 @@ from typing import final, Any, Self, Callable
 import mcdreforged.api.all as MCDR
 
 from kpi.config import Properties
-from kpi.utils import LockedData
 from .constants import *
 from .configs import *
 from .utils import *
@@ -232,6 +231,7 @@ class Conn:
 	def disconnect(self):
 		log_info('Forced disconnect player {0}[{1[0]}:{1[1]}]'.format(self.name, self.addr))
 		self.conn.close()
+		self.server._pop_uconn(self.conn)
 
 class ProxyServer:
 	def __init__(self, server: MCDR.ServerInterface, base: str, config, whlist):
@@ -257,7 +257,8 @@ class ProxyServer:
 		self._lock = threading.Condition(threading.Lock())
 		self.__sockets: list[socket.socket] = []
 		self.__status = 0
-		self._conns = LockedData({})
+		self._conns = {}
+		self._uconns = set() # underlying connections
 
 	@property
 	def base(self):
@@ -317,6 +318,14 @@ class ProxyServer:
 			conns = list(filter(lambda c: c.ip in network, self._conns.d.values()))
 			return conns
 
+	def _add_uconn(self, conn):
+		with self._lock:
+			self._uconns.add(conn)
+
+	def _pop_uconn(self, conn):
+		with self._lock:
+			self._uconns.discard(conn)
+
 	@property
 	def on_login(self):
 		return self._on_login
@@ -341,14 +350,21 @@ class ProxyServer:
 		sokt = self.new_connection(login_data)
 
 		c = Conn(name, addr, conn, self, sokt, login_data)
+		with self._lock:
+			if name in self._conns:
+				send_package(conn, 0x00, encode_json({
+					'text': 'LoginProxy: Player {} is already exists'.format(name),
+				}))
+				conn.close()
+				self._uconn.discard(conn)
+				return True
+			self._conns[name] = c
 		def final():
-			c.conn.close()
-			with self._conns:
-				if self._conns.d.pop(c.name, None) is not None:
-					c._set_close()
+			with self._lock:
+				self._uconn.discard(conn)
+				self._conns.pop(c.name, None)
+				c._set_close()
 			self.__mcdr_server.dispatch_event(ON_LOGOFF, (self, c), on_executor_thread=False)
-		with self._conns:
-			self._conns.d[name] = c
 		proxy_conn(conn, sokt, addr, final=final)
 		return True
 
@@ -362,7 +378,7 @@ class ProxyServer:
 			debug('Creating connection for ping...')
 			sokt = self.new_connection(login_data)
 			debug('Forward ping connection')
-			waiter = proxy_conn(conn, sokt, addr)
+			waiter = proxy_conn(conn, sokt, addr, final=lambda: self._pop_uconn(conn))
 			waiter()
 			debug('Ping connection finished')
 			return True
@@ -420,6 +436,7 @@ class ProxyServer:
 				conn, addr = sock.accept()
 				if self.__status != 1:
 					return
+				self._add_uconn(conn)
 				handle(conn, addr)
 		except (ConnectionAbortedError, OSError):
 			pass
@@ -481,31 +498,34 @@ class ProxyServer:
 			for s in self.__sockets:
 				s.close()
 			self.__sockets.clear()
-		with self._conns:
-			for c in self._conns.d.values():
+		with self._lock:
+			for c in self._conns.values():
 				c.kick('MCDR: Login Proxy is stopping')
 		for _ in range(30): # wait for 3.0 seconds
-			if len(self._conns.d) == 0:
+			if len(self._conns) == 0:
 				break
 			time.sleep(0.1)
 		else:
-			with self._conns:
-				for c in self._conns.d.values():
+			with self._lock:
+				for c in self._conns.values():
 					c.disconnect()
-				self._conns.d.clear()
+				self._conns.clear()
+		for c in self._uconns:
+			c.close()
+		self._uconns.clear()
 
 	def __del__(self):
-		with self._conns:
-			for c in self._conns.d.values():
-				c.disconnect()
-			self._conns.d.clear()
 		with self._lock:
-			if self.__status == 2:
-				for s in self.__sockets:
-					s.close()
-				self.__sockets.clear()
+			for s in self.__sockets:
+				s.close()
+			for c in self._uconns:
+				c.close()
 
 	def handle(self, conn, addr: tuple[str, int]):
+		def close_conn():
+			conn.close()
+			self._pop_uconn(conn)
+
 		try:
 			canceled: bool = False
 			def canceler():
@@ -516,7 +536,7 @@ class ProxyServer:
 				(self, conn, addr, canceler), on_executor_thread=False)
 			if canceled:
 				debug('Client [[{0[0]}]:{0[1]}] disconnected by event handler'.format(addr))
-				conn.close()
+				close_conn()
 				return
 
 			close_flag: bool = True
@@ -544,17 +564,14 @@ class ProxyServer:
 					if pkt.id == 0x00:
 						debug('Client [[{0[0]}]:{0[1]}] tring login'.format(addr))
 						close_flag = not self.handle_login(conn, addr, login_data, pkt)
-			if close_flag:
-				conn.close()
 		except (ConnectionAbortedError, ConnectionResetError):
-			conn.close()
+			pass
 		except Exception as e:
 			log_warn('Error when handle[[{0[0]}]:{0[1]}]: {1}'.format(addr, str(e)))
 			traceback.print_exc()
-			conn.close()
-		except:
-			conn.close()
-			raise
+		finally:
+			if close_flag:
+				close_conn()
 
 	def handle_login(self, conn, addr: tuple[str, int], login_data: dict, pkt: PacketReader) -> bool:
 		cls = self.__class__
@@ -681,14 +698,12 @@ class ProxyServer:
 		conn.sendall(b'\xff' + len(res).to_bytes(2, byteorder='big') + res.encode('utf-16-be'))
 
 def do_once_wrapper(callback):
-	did = LockedData(False)
+	did = False
 	@functools.wraps(callback)
 	def w(*args, **kwargs):
-		nonlocal did
-		with did:
-			if did.d:
-				return
-			did.d = True
+		if did:
+			return
+		did = True
 		return callback(*args, **kwargs)
 	return w
 
