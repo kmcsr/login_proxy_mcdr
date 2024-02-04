@@ -494,9 +494,6 @@ class ProxyServer:
 				debug('stopping with status', self.__status)
 				return
 			self.__status = 2
-			for s in self.__sockets:
-				s.close()
-			self.__sockets.clear()
 			for c in self._conns.values():
 				c.kick('MCDR: Login Proxy is stopping')
 		for _ in range(30): # wait for 3.0 seconds
@@ -509,6 +506,10 @@ class ProxyServer:
 					c.disconnect()
 				self._conns.clear()
 		with self._lock:
+			for s in self.__sockets:
+				s.shutdown(socket.SHUT_RDWR)
+				s.close()
+			self.__sockets.clear()
 			for c in self._uconns:
 				c.close()
 			self._uconns.clear()
@@ -516,6 +517,7 @@ class ProxyServer:
 	def __del__(self):
 		with self._lock:
 			for s in self.__sockets:
+				s.shutdown(socket.SHUT_RDWR)
 				s.close()
 			for c in self._uconns:
 				c.close()
