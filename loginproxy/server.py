@@ -355,12 +355,12 @@ class ProxyServer:
 					'text': 'LoginProxy: Player {} is already exists'.format(name),
 				}))
 				conn.close()
-				self._uconn.discard(conn)
+				self._uconns.discard(conn)
 				return True
 			self._conns[name] = c
 		def final():
 			with self._lock:
-				self._uconn.discard(conn)
+				self._uconns.discard(conn)
 				self._conns.pop(c.name, None)
 				c._set_close()
 			self.__mcdr_server.dispatch_event(ON_LOGOFF, (self, c), on_executor_thread=False)
