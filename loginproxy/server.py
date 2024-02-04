@@ -613,14 +613,14 @@ class ProxyServer:
 			}))
 			return False
 
-		canceled: bool = False
-		def canceler():
+		canceled: int = 0 # 0: not canceled; 1: handled; 2: disconnected
+		def canceler(handled: bool = False):
 			nonlocal canceled
-			canceled = True
+			canceled = 1 if handled else 2
 		self.__mcdr_server.dispatch_event(ON_LOGIN,
 			(self, conn, addr, name, login_data, canceler), on_executor_thread=False)
-		if canceled:
-			return False
+		if canceled != 0:
+			return canceled == 1
 
 		for handle in self._on_login:
 			if handle(self, conn, addr, name, login_data):
