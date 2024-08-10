@@ -507,7 +507,10 @@ class ProxyServer:
 				self._conns.clear()
 		with self._lock:
 			for s in self.__sockets:
-				s.shutdown(socket.SHUT_RDWR)
+				try:
+					s.shutdown(socket.SHUT_RDWR)
+				except OSError: # for WinError 10057
+					pass
 				s.close()
 			self.__sockets.clear()
 			for c in self._uconns:
@@ -517,7 +520,10 @@ class ProxyServer:
 	def __del__(self):
 		with self._lock:
 			for s in self.__sockets:
-				s.shutdown(socket.SHUT_RDWR)
+				try:
+					s.shutdown(socket.SHUT_RDWR)
+				except OSError: # for WinError 10057
+					pass
 				s.close()
 			for c in self._uconns:
 				c.close()
@@ -636,17 +642,18 @@ class ProxyServer:
 
 	@staticmethod
 	def login_parser_1_19(pkt: PacketReader, login_data: dict):
+		protocol = login_data['protocol']
 		login_data['name'] = pkt.read_string()
-		if login_data['protocol'] <= Protocol.V1_19_2:
+		if protocol <= Protocol.V1_19_2:
 			has_sig = pkt.read_bool()
 			login_data['has_sig'] = has_sig
 			if has_sig:
 				login_data['timestamp'] = pkt.read_long()
 				login_data['pubkey'] = pkt.read(pkt.read_varint())
 				login_data['sign'] = pkt.read(pkt.read_varint())
-		if login_data['protocol'] >= Protocol.V1_20_2:
+		if protocol >= Protocol.V1_20_2:
 			login_data['uuid'] = pkt.read_uuid()
-		elif login_data['protocol'] >= Protocol.V1_19_1: # Fix issue #1
+		elif protocol >= Protocol.V1_19_1: # Fix issue #1
 			has_uuid = pkt.read_bool()
 			login_data['has_uuid'] = has_uuid
 			if has_uuid:
