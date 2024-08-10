@@ -120,6 +120,7 @@ class Commands(PermCommandSet):
 		conn = get_proxy().get_conn(name)
 		if conn is not None:
 			conn.kick(self.config.messages['banned.name'], server=source.get_server())
+		self.lists.save()
 		send_message(source, MSG_ID, tr_res('player.banned', name))
 
 	@Literal('banip')
@@ -136,6 +137,7 @@ class Commands(PermCommandSet):
 		conns = get_proxy().get_conns_by_ip(ip)
 		for c in conns:
 			c.kick(msg, server=server)
+		self.lists.save()
 		send_message(source, MSG_ID, tr_res('ip.banned', ip0))
 
 	@Literal('pardon')
@@ -145,6 +147,7 @@ class Commands(PermCommandSet):
 		except ValueError:
 			send_message(source, MSG_ID, tr_res('player.not_banned', name))
 			return
+		self.lists.save()
 		send_message(source, MSG_ID, tr_res('player.unbanned', name))
 
 	@Literal('pardonip')
@@ -158,6 +161,7 @@ class Commands(PermCommandSet):
 		except ValueError:
 			send_message(source, MSG_ID, tr_res('ip.not_banned', ip0))
 			return
+		self.lists.save()
 		send_message(source, MSG_ID, tr_res('ip.unbanned', ip0))
 
 	@Literal(['whitelist', 'wh'])
@@ -272,6 +276,7 @@ class Commands(PermCommandSet):
 			send_message(source, MSG_ID, tr_res('player.already_allowed', name))
 			return
 		self.lists.allowed.append(name)
+		self.lists.save()
 		send_message(source, MSG_ID, tr_res('player.allowed', name))
 
 	@Literal('allowip')
@@ -283,6 +288,7 @@ class Commands(PermCommandSet):
 			send_message(source, MSG_ID, tr_res('ip.already_allowed', ip))
 			return
 		self.lists.allowedip.append(ip0)
+		self.lists.save()
 		send_message(source, MSG_ID, tr_res('ip.allowed', ip0))
 
 	@Literal(['remove', 'rm'])
@@ -296,6 +302,7 @@ class Commands(PermCommandSet):
 			conn = get_proxy().get_conn(name)
 			if conn is not None:
 				conn.kick(self.config.messages['whitelist.name'], server=source.get_server())
+		self.lists.save()
 		send_message(source, MSG_ID, tr_res('player.removed', name))
 
 	@Literal(['removeip', 'rmip'])
@@ -315,4 +322,5 @@ class Commands(PermCommandSet):
 			for c in conns:
 				if not self.config.check_player_level(c.ip):
 					c.kick(msg, server=server)
+		self.lists.save()
 		send_message(source, MSG_ID, tr_res('ip.removed', ip0))
