@@ -28,18 +28,18 @@ cd $(dirname $0)
 echo '==> Checking...'
 echo
 
-mypy . || exit $?
+python3.11 -m mypy . || exit $?
 
 echo '==> Reading plugin metadata...'
 echo
 
-_PARSER=$(cat <<EOF
+_PARSER=`cat <<EOF
 import json,sys
 o = json.load(open(sys.argv[1],"r"))
 n, d, v, m = o["name"], o["id"], o["version"], o.get("archive_name")
 print((n.replace(" ", "") if n else d), v if not m else m.format(id=d, version=v), v)
-EOF
-)
+EOF`
+
 _TG='mcdreforged.plugin.json'
 data=($(python3 -c "$_PARSER" "$_TG"))
 if [ $? -ne 0 ]; then
@@ -52,13 +52,13 @@ namever="${data[1]}"
 version="v${data[2]}"
 
 if [ -n "$DEV" ]; then
-	packname="${name}-dev"
+	output="${name}-dev"
 else
-	packname="${name}-v${namever}"
+	output="${name}-v${namever}"
 fi
 
 echo '==> Packing source files...'
-python3 -m mcdreforged pack -o ./output -n "$packname" || exit $?
+python3 -m mcdreforged pack -o ./output -n "$output" || exit $?
 
 if ! [ -n "$DEV" ]; then
 	if [ -n "$COMMIT" ]; then
@@ -67,7 +67,7 @@ if ! [ -n "$DEV" ]; then
 	fi
 	if [ -n "$RELEASE" ]; then
 		echo '==> Creating github release...'
-		gh release create "$version" "./output/${packname}.mcdr" -t "$version" -n '' || exit $?
+		gh release create "$version" "./output/${output}.mcdr" -t "$version" -n '' || exit $?
 	fi
 fi
 

@@ -158,9 +158,6 @@ class ListConfig(JSONStorage):
 	bannedip: List[IPNetwork] = []
 	allowedip: List[IPNetwork] = []
 
-	def __init__(self, *args, sync_update=True, **kwargs):
-		super().__init__(*args, sync_update=sync_update, **kwargs)
-
 	@classmethod
 	def instance(cls) -> Optional[Self]:
 		return cls._instance
@@ -183,15 +180,15 @@ class ListConfig(JSONStorage):
 				return True
 		return False
 
-def get_config():
-	return LPConfig.instance
+def get_config() -> LPConfig:
+	return LPConfig.instance()
 
 def init(server: MCDR.PluginServerInterface):
 	global BIG_BLOCK_BEFOR, BIG_BLOCK_AFTER
 	metadata = server.get_self_metadata()
 	LazyData.load(BIG_BLOCK_BEFOR, metadata)
 	LazyData.load(BIG_BLOCK_AFTER, metadata)
-	LPConfig.init_instance(server, load_after_init=True)
+	LPConfig.init_instance(server, load_after_init=True).save()
 	ListConfig._instance = ListConfig(server, 'list.json', sync_update=True, load_after_init=True)
 
 def destory(server: MCDR.PluginServerInterface):

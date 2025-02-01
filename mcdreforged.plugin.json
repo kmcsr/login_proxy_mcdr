@@ -1,6 +1,6 @@
 {
   "id": "loginproxy",
-  "version": "0.6.11",
+  "version": "0.6.12",
   "name": "LoginProxy",
   "description": {
     "en_us": "A Minecraft login proxy Plugin",
@@ -10,7 +10,7 @@
   "link": "https://github.com/kmcsr/login_proxy_mcdr",
   "dependencies": {
     "mcdreforged": "^2.3.0",
-    "kpi": "~1.4.6"
+    "kpi": "~1.5.0"
   },
   "resources": [
     "LICENSE",
