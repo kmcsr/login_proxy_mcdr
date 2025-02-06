@@ -11,6 +11,10 @@ class Protocol(int, enum.Enum):
 			return super().__str__()
 		return self.name[1:].replace('__', '-').replace('_', '.')
 
+	V1_21_4 = 769
+	V1_21_3 = 768
+	V1_21_2 = 768
+	V1_21_1 = 767
 	V1_21 = 767
 	V1_20_6 = 766
 	V1_20_5 = 766
@@ -333,3 +337,34 @@ class Protocol(int, enum.Enum):
 	V15w31a = 49
 	V15w14a = 48
 	V1_8_9 = 47
+
+	@staticmethod
+	def get_disconnect_play_id(protocol: int) -> int:
+		if protocol >= Protocol.V1_20_6:
+			return 0x1d
+		if protocol >= Protocol.V1_20_2:
+			return 0x1b
+		if protocol >= Protocol.V1_19_4:
+			return 0x1a
+		if protocol >= Protocol.V1_19_3:
+			return 0x17
+		if protocol >= Protocol.V1_19_2:
+			return 0x19
+		if protocol >= Protocol.V1_19:
+			return 0x17
+		if protocol >= Protocol.V1_17:
+			return 0x1a
+		if protocol >= Protocol.V1_16_2:
+			return 0x19
+		if protocol >= Protocol.V1_16:
+			return 0x1a
+		if protocol >= Protocol.V1_15:
+			return 0x1b
+		if protocol >= Protocol.V1_14:
+			return 0x1a
+		if protocol >= Protocol.V1_13:
+			return 0x1b
+		if protocol >= Protocol.V1_9__pre4:
+			return 0x1a
+		# >= V1_7
+		return 0x40

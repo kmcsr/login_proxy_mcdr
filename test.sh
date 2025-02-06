@@ -1,9 +1,11 @@
 #!/bin/bash
 
+minecraft_version=1.19.2
+
 cd $(dirname $0)
 BASE_DIR=$(pwd)
-mkdir -p test
-cd test
+mkdir -p _test
+cd _test
 
 function set_mcdr_config(){
 	while IFS='' read line; do
@@ -13,6 +15,8 @@ function set_mcdr_config(){
 		# 	echo 'advanced_console: false'
 		# elif [[ "${line}" == 'disable_console_color:'* ]]; then
 		# 	echo 'disable_console_color: true'
+		elif [[ "${line}" == 'start_command:'* ]]; then
+			echo "start_command: ['java', '-Xms1G', '-Xmx2G', '-jar', 'minecraft_server.jar', 'nogui']"
 		elif [[ "${line}" == 'debug:'* ]]; then
 			echo "${line}"
 			IFS='' read line
@@ -41,14 +45,13 @@ fi
 if ! [ -n "$SERVER_URL" ]; then
 	SERVER_URL=https://piston-data.mojang.com/v1/objects/c9df48efed58511cdd0213c56b9013a7b5c9ac1f/server.jar
 fi
-SERVER_DIR=server
-SERVRE_JAR=$SERVER_DIR/minecraft_server.jar
 
-if ! [ -f "$SERVRE_JAR" ]; then
-	echo "==> Getting '$SERVER_URL'"
-	if ! wget -O "$SERVRE_JAR" "$SERVER_URL" 2>/dev/null; then
-		curl -L --output "$SERVRE_JAR" "$SERVER_URL" || exit $?
-	fi
+SERVER_DIR=server
+SERVER_EXE_NAME=minecraft_server
+
+if ! [ -f "$SERVER_DIR/$SERVER_EXE_NAME.jar" ]; then
+	echo "==> Getting minecraft $minecraft_version"
+	minecraft_installer -output "$SERVER_DIR" -name="$SERVER_EXE_NAME" -version "$minecraft_version" vanilla
 fi
 
 echo '==> Packing plugin'

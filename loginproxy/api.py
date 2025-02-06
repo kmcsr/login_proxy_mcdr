@@ -17,8 +17,10 @@ def get_proxy() -> ProxyServer:
 
 def on_load(server: MCDR.PluginServerInterface, prev_module):
 	global pxserver
+	list_config = ListConfig.instance()
+	assert list_config is not None
 	pxserver = ProxyServer(server, server.get_mcdr_config()['working_directory'],
-		get_config(), ListConfig.instance())
+		get_config(), list_config)
 	pxserver.start()
 
 def on_unload(server: MCDR.PluginServerInterface):

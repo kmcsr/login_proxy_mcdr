@@ -29,10 +29,13 @@ def on_load(server: MCDR.PluginServerInterface, prev_module):
 	api.on_load(server, prev_module)
 	CMD.register(server)
 
+	def _c2s_listener(server: MCDR.PluginServerInterface, c: Conn, reader: PacketReader, cancel):
+		log_info('c2s', hex(reader.id))
+	server.register_event_listener(ON_PACKET_C2S, _c2s_listener)
+
 def on_unload(server: MCDR.PluginServerInterface):
 	log_info('Login proxy is on UNLOAD')
 	api.on_unload(server)
-	configs.destory(server)
 
 def on_server_start(server: MCDR.PluginServerInterface):
 	api.on_server_start(server)

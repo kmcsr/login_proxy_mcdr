@@ -6,7 +6,7 @@
 /output/
 
 # test
-/test/
+/_test/
 
 # python
 __pycache__

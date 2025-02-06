@@ -13,7 +13,7 @@ from .utils import *
 __all__ = [
 	'MSG_ID', 'BIG_BLOCK_BEFOR', 'BIG_BLOCK_AFTER',
 	'LPConfig', 'IPNetwork', 'ListConfig',
-	'get_config', 'init', 'destory'
+	'get_config', 'init',
 ]
 
 MSG_ID = MCDR.RText('[LP]', color=MCDR.RColor.light_purple)
@@ -56,6 +56,9 @@ class LPConfig(Config, msg_id=MSG_ID):
 		'whitelist.name': 'Your account is not in the whitelist',
 		'whitelist.ip': 'Your ip is not in the whitelist',
 	}
+
+	enable_packet_proxy: bool = False
+	online_mode: bool = False
 
 	def check_player_level(self, name: str) -> bool:
 		return get_server_instance().get_permission_level(name) >= self.whitelist_level
@@ -190,11 +193,3 @@ def init(server: MCDR.PluginServerInterface):
 	LazyData.load(BIG_BLOCK_AFTER, metadata)
 	LPConfig.init_instance(server, load_after_init=True).save()
 	ListConfig._instance = ListConfig(server, 'list.json', sync_update=True, load_after_init=True)
-
-def destory(server: MCDR.PluginServerInterface):
-	cfg = get_config()
-	if cfg is not None:
-		cfg.save()
-	lst = ListConfig.instance()
-	if lst is not None:
-		lst.save()

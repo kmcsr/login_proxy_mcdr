@@ -41,6 +41,7 @@ def encode_bool(v: bool) -> bytes:
 	return b'\x01' if v else b'\x00'
 
 def encode_varint(n: int) -> bytes:
+	assert n >= 0
 	if n == 0:
 		return b'\x00'
 	b = bytearray()
@@ -174,24 +175,24 @@ class PacketReader:
 	def read_varint(self) -> int:
 		n, i = 0, 0
 		while True:
-			bt = self.read_byte()
+			bt = self.read_ubyte()
 			n |= (bt & 0x7f) << i
 			if bt & 0x80 == 0:
 				break
 			i += 7
-			if i >= 32:
+			if i > 32:
 				raise DecodeError('VarInt too big', '32-bit', str(i) + '-bit')
 		return n
 
 	def read_varlong(self) -> int:
 		n, i = 0, 0
 		while True:
-			bt = self.read_byte()
+			bt = self.read_ubyte()
 			n |= (bt & 0x7f) << i
 			if bt & 0x80 == 0:
 				break
 			i += 7
-			if i >= 64:
+			if i > 64:
 				raise DecodeError('VarLong too big', '64-bit', str(i) + '-bit')
 		return n
 
@@ -222,6 +223,10 @@ class PacketReader:
 	def read_uuid(self) -> uuid.UUID:
 		v = self.read(16, err='UUID length not correct')
 		return uuid.UUID(bytes=v)
+
+	def read_bytearray(self) -> bytes:
+		n = self.read_varint()
+		return self.read(n, err='bytearray is shorter than expected')
 
 class PacketBuffer:
 	def __init__(self):
@@ -280,12 +285,12 @@ class PacketBuffer:
 		return self
 
 	def write_varint(self, v: int):
-		assert v >> 32 == 0, f'{hex(v)} is not in range'
+		assert v >> 32 == 0 and v >= 0, f'{hex(v)} is not in range'
 		self._data += encode_varint(v)
 		return self
 
 	def write_varlong(self, v: int):
-		assert v >> 64 == 0, f'{hex(v)} is not in range'
+		assert v >> 64 == 0 and v >= 0, f'{hex(v)} is not in range'
 		self._data += encode_varint(v)
 		return self
 
@@ -311,6 +316,10 @@ class PacketBuffer:
 
 	def write_uuid(self, v: uuid.UUID):
 		self.write(v.bytes)
+		return self
+
+	def write_bytearray(self, v: bytes):
+		self.write_varint(len(v)).write(v)
 		return self
 
 class BitSet:
