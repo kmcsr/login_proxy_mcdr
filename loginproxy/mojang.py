@@ -15,7 +15,7 @@ def get_has_joined(username: str, serverid: str, ip: str | None = None) -> dict 
 	if ip is not None:
 		url += '&ip=' + urllib.parse.quote(ip)
 	try:
-		conn = http.client.HTTPSConnection(MOJANG_SERVER_HOST)
+		conn = http.client.HTTPSConnection(MOJANG_SERVER_HOST, timeout=10)
 		conn.request('GET', url)
 		resp = conn.getresponse()
 		if resp.status != 200:
