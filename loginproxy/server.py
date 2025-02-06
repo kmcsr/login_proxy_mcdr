@@ -801,7 +801,7 @@ def proxy_conn_stream(c1, c2, addr: tuple[str, int], *, final=None, **kwargs):
 	stream_forwarder(c2, c1, addr, final=final0, **kwargs)
 	return waiter
 
-def handle_login_packet_c2s(c: Conn, reader: PacketReader, cancel):
+def handle_login_packet_c2s(c: Conn, reader: PacketReader, event_dispatcher, cancel):
 	if reader.id == 0x01: # Encryption Response
 		cancel()
 		encrypted_secret = reader.read_bytearray()
@@ -839,7 +839,7 @@ def handle_login_packet_c2s(c: Conn, reader: PacketReader, cancel):
 		assert not isinstance(c._wrapped_conn_client, EncryptedConn)
 		c._wrapped_conn_client = EncryptedConn(c._wrapped_conn_client, encryptor)
 
-def handle_login_packet_s2c(c: Conn, reader: PacketReader, cancel):
+def handle_login_packet_s2c(c: Conn, reader: PacketReader, event_dispatcher, cancel):
 	if reader.id == 0x01: # Encryption Request
 		cancel()
 		server_id = reader.read_string()
@@ -866,6 +866,8 @@ def handle_login_packet_s2c(c: Conn, reader: PacketReader, cancel):
 	elif reader.id == 0x02: # Login Success
 		debug('Login success', c)
 		c._server_status = ConnStatus.PLAY
+		if c.client_status == ConnStatus.PLAY:
+			event_dispatcher(ON_POSTLOGIN, (c, ), on_executor_thread=False)
 		if 'client_verify_token' in c._custom_data:
 			cancel()
 			return
@@ -887,6 +889,8 @@ def handle_login_packet_s2c(c: Conn, reader: PacketReader, cancel):
 			c.send_client(buf.data)
 			cancel()
 		c._client_status = ConnStatus.PLAY
+		if c.server_status == ConnStatus.PLAY:
+			event_dispatcher(ON_POSTLOGIN, (c, ), on_executor_thread=False)
 	elif reader.id == 0x03: # Set compression
 		compress_threshold = reader.read_varint()
 		c._server_compress_threshold = compress_threshold
@@ -913,9 +917,9 @@ def packet_forwarder(c: Conn, c2s: bool, addr: tuple[str, int], event_dispatcher
 			next_packet = reader.data
 			if c2s:
 				if c.client_status == ConnStatus.LOGIN:
-					handle_login_packet_c2s(c, reader, cancel)
+					handle_login_packet_c2s(c, reader, event_dispatcher, cancel)
 			elif c.server_status == ConnStatus.LOGIN:
-				handle_login_packet_s2c(c, reader, cancel)
+				handle_login_packet_s2c(c, reader, event_dispatcher, cancel)
 			if c.client_status != c.server_status:
 				if next_packet is not None:
 					cached_packets.append(PacketReader(next_packet))
