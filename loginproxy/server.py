@@ -864,12 +864,12 @@ def handle_login_packet_s2c(c: Conn, reader: PacketReader, event_dispatcher, can
 				return
 		c.kick('minecraft server enabled authorization, please disable first')
 	elif reader.id == 0x02: # Login Success
+		cancel()
 		debug('Login success', c)
 		c._server_status = ConnStatus.PLAY
 		if c.client_status == ConnStatus.PLAY:
 			event_dispatcher(ON_POSTLOGIN, (c, ), on_executor_thread=False)
 		if 'client_verify_token' in c._custom_data:
-			cancel()
 			return
 		if 'uuid' in c._custom_data:
 			buf = PacketBuffer()
@@ -887,7 +887,8 @@ def handle_login_packet_s2c(c: Conn, reader: PacketReader, event_dispatcher, can
 					if has_sig:
 						buf.write_string(prop['signature'])
 			c.send_client(buf.data)
-			cancel()
+		else:
+			c.send_client(reader.data)
 		c._client_status = ConnStatus.PLAY
 		if c.server_status == ConnStatus.PLAY:
 			event_dispatcher(ON_POSTLOGIN, (c, ), on_executor_thread=False)
