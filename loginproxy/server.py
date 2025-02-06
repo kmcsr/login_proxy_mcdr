@@ -14,9 +14,6 @@ from abc import abstractmethod
 from math import *
 from typing import final, Any, Self, Callable
 
-from Crypto.Cipher import PKCS1_v1_5
-from Crypto.PublicKey import RSA
-
 import mcdreforged.api.all as MCDR
 
 from kpi.config import Properties
@@ -264,8 +261,16 @@ class ProxyServer:
 			log_warn(tr('message.warn.port_might_same', self.server_addr, self.config.proxy_addr))
 		self._modt = self._properties.get_str('motd', 'A Minecraft Server')
 		self._max_players = self._properties.get_int('max-players', 20)
-		self._private_key = RSA.generate(1024)
-		self._cipher = PKCS1_v1_5.new(self._private_key)
+
+		if self.config.enable_packet_proxy:		
+			from Crypto.Cipher import PKCS1_v1_5
+			from Crypto.PublicKey import RSA
+
+			self._private_key = RSA.generate(1024)
+			self._cipher = PKCS1_v1_5.new(self._private_key)
+		else:
+			self._private_key = None
+			self._cipher = None
 
 		self._on_login = [cls.default_onlogin]
 		self._on_ping = [cls.default_onping]

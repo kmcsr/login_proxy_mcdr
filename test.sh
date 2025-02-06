@@ -42,10 +42,6 @@ if ! [ -f config.yml ]; then
 	set_mcdr_config
 fi
 
-if ! [ -n "$SERVER_URL" ]; then
-	SERVER_URL=https://piston-data.mojang.com/v1/objects/c9df48efed58511cdd0213c56b9013a7b5c9ac1f/server.jar
-fi
-
 SERVER_DIR=server
 SERVER_EXE_NAME=minecraft_server
 

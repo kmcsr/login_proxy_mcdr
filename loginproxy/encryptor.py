@@ -1,8 +1,6 @@
 
 from typing import Protocol
 
-from Crypto.Cipher import AES
-
 __all__ = [
 	'IConnection', 'Encryptor', 'EncryptedConn',
 	'new_aes',
@@ -20,6 +18,8 @@ class IConnection(Protocol):
 
 class Encryptor:
 	def __init__(self, secret: bytes):
+		from Crypto.Cipher import AES
+
 		self._secret = secret
 		self._encryptor = AES.new(secret, AES.MODE_CFB, iv=secret, segment_size=8)
 
