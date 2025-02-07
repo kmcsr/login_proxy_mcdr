@@ -25,6 +25,7 @@
 | ID | 下载链接 |
 |----|----|
 | [kpi](https://github.com/kmcsr/kpi_mcdr) | <https://github.com/kmcsr/kpi_mcdr/releases> |
+| [packet_parser](https://github.com/kmcsr/packet_parser_mcdr) | <https://github.com/kmcsr/packet_parser_mcdr/releases> |
 
 ## FAQ
 
@@ -41,10 +42,11 @@
 
 ## 如何安装&配置
 
-1. 从[releases](https://github.com/kmcsr/login_proxy_mcdr/releases/)下载最新的mcdr文件至插件文件夹
+1. 从 [releases](https://github.com/kmcsr/login_proxy_mcdr/releases/) 下载最新的mcdr文件至插件文件夹
 2. 调整您的minecraft服务器端口 _(在server.properties)_, 使其不与本插件的`proxy_addr`重复 _(如果您使用spigot等第三方服务端, 请确保端口等基本信息与`server.properties`同步)_
 3. 调整您的防火墙配置, 防止外部连接连接您的minecraft服务端 _(或者让您的服务端监听`127.0.0.1`)_
-4. 启动MCDR
+4. 将服务端的 `online-mode` 设为 `false`. 如果需要, 可以启用本插件配置文件中的 `online_mode` 选项.
+5. 启动 MCDR
 
 ## 指令
 
@@ -60,7 +62,7 @@
 | `!!lp pardonip <ip>` | 允许IP连接 |
 | `!!lp whitelist`     | 列出白名单和IP白名单 |
 | `!!lp whitelist [enable|disable]` | 启用/禁用白名单 |
-| `!!lp whitelist [enableip|disableip]` | 启用/禁用IP白名单 |
+| `!!lp whitelist [enableip\|disableip]` | 启用/禁用IP白名单 |
 | `!!lp allow <name>`  | 将玩家添加至白名单 |
 | `!!lp allowip <ip>`  | 将IP添加至IP白名单 |
 | `!!lp remove <name>` | 将玩家从白名单中移除 |
@@ -104,7 +106,9 @@
         "banned.ip": "Your ip has been banned", // 当玩家IP被ban的时候提示
         "whitelist.name": "Your account is not in the whitelist", // 当玩家名不在白名单的时候提示
         "whitelist.ip": "Your ip is not in the whitelist" // 当玩家名IP不在白名单的时候提示
-    }
+    },
+    "enable_packet_proxy": true, // 是否解析数据包. 需要为其他插件启用
+    "online_mode": false // 是否为在线模式
 }
 ```
 

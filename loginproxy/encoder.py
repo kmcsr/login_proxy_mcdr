@@ -2,6 +2,7 @@
 import io
 import json
 import uuid
+from typing import Self
 
 from kpi.utils import assert_instanceof
 
@@ -15,6 +16,7 @@ __all__ = [
 	'recv_byte', 'recv_varint', 'recv_varint2', 'recv_package',
 	'PacketReader', 'PacketBuffer',
 	'BitSet',
+	'ServerStatus',
 ]
 
 class DecodeError(Exception):
@@ -93,15 +95,20 @@ def recv_varint(c) -> int:
 	return recv_varint2(c)[0]
 
 class PacketReader:
+	__slots__ = ('_data', '_reader', '_id', '_read_id')
 	def __init__(self, data: bytes, id: int | None = None):
-		self._size = len(data)
 		self._data = data
 		self._reader = io.BytesIO(data)
-		self._id = self.read_varint() if id is None else id
+		if id is None:
+			self._id = self.read_varint()
+			self._read_id = self._reader.seek(0, io.SEEK_CUR)
+		else:
+			self._id = id
+			self._read_id = 0
 
 	@property
 	def size(self) -> int:
-		return self._size
+		return len(self._data)
 
 	@property
 	def reader(self) -> io.BytesIO:
@@ -117,7 +124,10 @@ class PacketReader:
 
 	@property
 	def remain(self) -> int:
-		return len(self.data) - self.reader.seek(0, io.SEEK_CUR)
+		return len(self._data) - self._reader.seek(0, io.SEEK_CUR)
+
+	def reset(self) -> None:
+		self._reader.seek(self._read_id, io.SEEK_SET)
 
 	def read(self, n: int = -1, *, err='buf remain not enough') -> bytes:
 		v = self._reader.read(n)
@@ -229,6 +239,8 @@ class PacketReader:
 		return self.read(n, err='bytearray is shorter than expected')
 
 class PacketBuffer:
+	__slots__ = ('_data')
+
 	def __init__(self):
 		self._data = b''
 
@@ -385,3 +397,51 @@ def recv_package(c, *, forwardto=None) -> PacketReader:
 			forwardto(buf)
 		data += buf
 	return PacketReader(data)
+
+class ServerStatus:
+	def __init__(self, version: str, protocol: int,
+		max_player: int, online_player: int, sample_players: list[dict],
+		description: dict, favicon: str | None,
+		enforcesSecureChat: bool):
+		self.version = version
+		self.protocol = protocol
+		self.max_player = max_player
+		self.online_player = online_player
+		self.sample_players = sample_players
+		self.description = description
+		self.favicon = favicon
+		self.enforcesSecureChat = False
+
+	def to_json(self) -> dict:
+		res: dict = {
+			'version': {
+				'name': self.version,
+				'protocol': self.protocol,
+			},
+			'players': {
+				'max': self.max_player,
+				'online': self.online_player,
+			},
+			'description': self.description,
+			'enforcesSecureChat': self.enforcesSecureChat,
+		}
+		if len(self.sample_players) > 0:
+			res['players']['sample'] = self.sample_players
+		if self.favicon is not None:
+			res['favicon'] = self.favicon
+		return res
+
+	@classmethod
+	def from_json(cls, value: dict) -> Self:
+		version = value['version']['name']
+		protocol = value['version']['protocol']
+		max_player = value['players']['max']
+		online_player = value['players']['online']
+		sample_players = value['players'].get('sample', [])
+		description = value['description']
+		favicon = value.get('favicon', None)
+		enforcesSecureChat = value.get('enforcesSecureChat', False)
+		return cls(version, protocol,
+			max_player, online_player, sample_players,
+			description, favicon,
+			enforcesSecureChat)

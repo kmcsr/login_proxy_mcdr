@@ -9,6 +9,7 @@ import socket
 import threading
 import time
 import traceback
+import uuid
 import zlib
 from abc import abstractmethod
 from math import *
@@ -17,64 +18,18 @@ from typing import final, Any, Self, Callable
 import mcdreforged.api.all as MCDR
 
 from kpi.config import Properties
-from .constants import *
 from .configs import *
-from .utils import *
+from .constants import *
 from .encoder import *
 from .encryptor import *
+from .event import *
+from .utils import *
 from . import mojang
 
 __all__ = [
-	# 'ServerStatus',
 	'ConnStatus', 'Conn',
 	'ProxyServer',
 ]
-
-# class ServerStatus:
-# 	def __init__(self, version: str, protocol: int,
-# 		max_player: int, online_player: int, sample_players: list[dict],
-# 		description: dict, favicon: str | None,
-# 		enforcesSecureChat: bool):
-# 		self.version = version
-# 		self.protocol = protocol
-# 		self.max_player = max_player
-# 		self.online_player = online_player
-# 		self.sample_players = sample_players
-# 		self.description = description
-# 		self.favicon = favicon
-# 		self.enforcesSecureChat = False
-
-# 	def to_json(self) -> dict:
-# 		res: dict = {
-# 			'version': {
-# 				'name': self.version,
-# 				'protocol': self.protocol,
-# 			},
-# 			'players': {
-# 				'max': self.max_player,
-# 				'online': self.online_player,
-# 				'sample': self.sample_players,
-# 			},
-# 			'description': self.description,
-# 		}
-# 		if self.enforcesSecureChat:
-# 			res['enforcesSecureChat'] = True
-# 		return res
-
-# 	@classmethod
-# 	def from_json(cls, value: dict) -> Self:
-# 		version = value['version']['name']
-# 		protocol = value['version']['protocol']
-# 		max_player = value['players']['max']
-# 		online_player = value['players']['online']
-# 		sample_players = value['players'].get('sample', [])
-# 		description = value['description']
-# 		favicon = value.get('favicon', None)
-# 		enforcesSecureChat = value.get('enforcesSecureChat', False)
-# 		return cls(version, protocol,
-# 			max_player, online_player, sample_players,
-# 			description, favicon,
-# 			enforcesSecureChat)
 
 class ConnStatus(int, enum.Enum):
 	HANDSHAKING = 0
@@ -82,18 +37,56 @@ class ConnStatus(int, enum.Enum):
 	LOGIN       = 2
 	PLAY        = 3
 
-class Conn:
+class PacketEvent(Event):
+	__slots__ = ('_conn', '_reader', '_is_client')
+
+	def __init__(self, conn: 'Conn', reader: PacketReader, *, is_client: bool):
+		super().__init__(cancelable=True)
+		self._conn = conn
+		self._reader = reader
+		self._is_client = is_client
+
+	@property
+	def conn(self) -> 'Conn':
+		return self._conn
+
+	@property
+	def reader(self) -> PacketReader:
+		return self._reader
+
+	@property
+	def id(self) -> int:
+		return self._reader.id
+
+	@property
+	def data(self) -> bytes:
+		return self._reader.data[self._reader._read_id:]
+
+	@property
+	def is_client(self) -> bool:
+		return self._is_client
+
+	@property
+	def is_server(self) -> bool:
+		return not self._is_client
+
+	def _on_before_callback(self) -> None:
+		self._reader.reset()
+
+class Conn(EventEmitter[PacketEvent]):
 	def __init__(self, name: str, addr: tuple[str, int],
 		server: 'ProxyServer',
 		conn_client: socket.socket, conn_server: socket.socket,
 		login_data: dict):
+		super().__init__()
 		self._name = name
 		self._addr = addr
 		self._conn_client = conn_client
 		self._conn_server = conn_server
 		self._wrapped_conn_client: IConnection = conn_client
 		self._wrapped_conn_server: IConnection = conn_server
-		self._conn_lock = threading.Lock()
+		self._client_send_lock = threading.Lock()
+		self._server_send_lock = threading.Lock()
 		self._login_data = login_data
 		self._protocol = login_data['protocol']
 		self._client_status = ConnStatus.HANDSHAKING
@@ -151,7 +144,6 @@ class Conn:
 		if compressed:
 			data_leng, size = recv_varint2(conn)
 			leng -= size
-		debug(f'Received packet; leng={leng + size}; compressed={compressed}; data_leng={data_leng}')
 		data = b''
 		while len(data) < leng:
 			data += conn.recv(leng - len(data))
@@ -161,7 +153,9 @@ class Conn:
 			except zlib.error as e:
 				debug(f'Incorrect compressed data: {repr(data)}')
 				raise
-		return PacketReader(data)
+		packet = PacketReader(data)
+		debug(f'Received packet; leng={leng + size}; compressed={compressed}; data_leng={data_leng}; id={packet.id}')
+		return packet
 
 	def recv_client(self) -> PacketReader:
 		"""
@@ -175,14 +169,16 @@ class Conn:
 		"""
 		return self._recvpkt(self._wrapped_conn_server, compress_threshold_getter=lambda: self._server_compress_threshold)
 
-	def _sendpkt(self, conn: IConnection, data: bytes, compress_threshold: int):
+	def _sendpkt(self, conn: IConnection, data: bytes, *, lock: threading.Lock, compress_threshold: int, side: str):
+		data_leng = 0
+		did = data[0]
 		if compress_threshold >= 0:
-			data_leng = 0
 			if len(data) > compress_threshold:
 				data_leng = len(data)
 				data = zlib.compress(data)
 			data = encode_varint(data_leng) + data
-		with self._conn_lock:
+		with lock:
+			debug(f'Sending packet; leng={len(data)}; compressed={compress_threshold >= 0}; data_leng={data_leng}; id={did}; side={side}')
 			conn.sendall(encode_varint(len(data)) + data)
 
 	def send_client(self, data: bytes, pid: int | None = None):
@@ -191,13 +187,13 @@ class Conn:
 		"""
 		if pid is not None:
 			data = encode_varint(pid) + data
-		self._sendpkt(self._wrapped_conn_client, data, compress_threshold=self._client_compress_threshold)
+		self._sendpkt(self._wrapped_conn_client, data, lock=self._client_send_lock, compress_threshold=self._client_compress_threshold, side='client')
 
 	def send_server(self, data: bytes):
 		"""
 		Send packet to the server
 		"""
-		self._sendpkt(self._wrapped_conn_server, data, compress_threshold=self._server_compress_threshold)
+		self._sendpkt(self._wrapped_conn_server, data, lock=self._server_send_lock, compress_threshold=self._server_compress_threshold, side='server')
 
 	@property
 	def server(self) -> 'ProxyServer':
@@ -214,9 +210,9 @@ class Conn:
 		debug(f'kicking client {self.name}{self.addr}: {reason}')
 		if not self._streaming:
 			disconnect_id = Protocol.get_disconnect_play_id(self.protocol) if self.client_status == ConnStatus.PLAY else 0x00
-			self.send_client(encode_json({
+			self.send_client(encode_varint(disconnect_id) + encode_json({
 				'text': 'LoginProxy: ' + reason,
-			}), disconnect_id)
+			}))
 			self.conn_client.close()
 			self.conn_server.close()
 			self.server._pop_uconn(self.conn_client)
@@ -234,7 +230,8 @@ class Conn:
 		return True
 
 	def disconnect(self) -> None:
-		log_info('Forced disconnect player {0}[{1[0]}:{1[1]}]'.format(self.name, self.addr))
+		log_info('Force disconnecting player {0}[{1[0]}:{1[1]}]'.format(self.name, self.addr))
+		debug(''.join(traceback.format_stack()))
 		if self._kicking is not None:
 			self._kicking.cancel()
 			self._kicking = None
@@ -242,6 +239,33 @@ class Conn:
 		self.conn_server.close()
 		self.server._pop_uconn(self.conn_client)
 		self._alive = False
+
+	def emit_packet(self, event: PacketEvent) -> None:
+		self.emit(-2 if event.is_client else -1, event)
+		if event.canceled:
+			return
+		self.emit(event.id, event)
+
+	def get_idset(self):
+		from packet_parser import PacketIdSet
+		return PacketIdSet.from_protocol(self.protocol)
+
+	def register_s2c(self, callback: Callable[[PacketEvent], None], priority: int | None = None) -> None:
+		self.register(-1, callback, priority)
+
+	def register_c2s(self, callback: Callable[[PacketEvent], None], priority: int | None = None) -> None:
+		self.register(-2, callback, priority)
+
+	def register_packet(self, packet_name: str, callback: Callable[[PacketEvent], None], priority: int | None = None, *,
+		slient_fail: bool = False) -> bool:
+		idset = self.get_idset()
+		packet_id: int | None = getattr(idset, packet_name, None)
+		if packet_id is None:
+			if slient_fail:
+				return False
+			raise ValueError(f'{repr(packet_name)} does not exists in protocol {idset.version} (include {self.protocol})')
+		self.register(packet_id, callback, priority)
+		return True
 
 class ProxyServer:
 	def __init__(self, server: MCDR.ServerInterface, base: str, config: LPConfig, whlist: ListConfig):
@@ -262,19 +286,17 @@ class ProxyServer:
 		self._modt = self._properties.get_str('motd', 'A Minecraft Server')
 		self._max_players = self._properties.get_int('max-players', 20)
 
-		if self.config.enable_packet_proxy:		
+		self._enabled_packet_proxy = self.config.enable_packet_proxy
+		if self._enabled_packet_proxy:
 			from Crypto.Cipher import PKCS1_v1_5
 			from Crypto.PublicKey import RSA
 
 			self._private_key = RSA.generate(1024)
 			self._cipher = PKCS1_v1_5.new(self._private_key)
-		else:
-			self._private_key = None
-			self._cipher = None
 
 		self._on_login = [cls.default_onlogin]
 		self._on_ping = [cls.default_onping]
-		self._lock = threading.Condition(threading.Lock())
+		self._lock = threading.Condition(threading.RLock())
 		self.__sockets: list[socket.socket] = []
 		self.__status = 0
 		self._conns: dict[str, Conn] = {}
@@ -395,7 +417,7 @@ class ProxyServer:
 			final()
 			return True
 
-		if self.config.enable_packet_proxy:
+		if self._enabled_packet_proxy:
 			proxy_conn_packet(c, self.__mcdr_server.dispatch_event, final=final)
 		else:
 			c._streaming = True
@@ -403,11 +425,7 @@ class ProxyServer:
 		return True
 
 	@staticmethod
-	def default_onping(self, conn, addr: tuple[str, int], login_data: dict, res: dict):
-		if 'description' not in res:
-			res['description'] = {
-				'text': self.modt,
-			}
+	def default_onping(self, conn, addr: tuple[str, int], login_data: dict, status: ServerStatus):
 		if get_server_instance().is_server_startup():
 			debug('Creating connection for ping...')
 			sokt = self.new_connection(login_data)
@@ -658,7 +676,7 @@ class ProxyServer:
 		def cancel(handled: bool = False):
 			nonlocal canceled
 			canceled = 1 if handled else 2
-		self.__mcdr_server.dispatch_event(ON_PRELOGIN,
+		self.__mcdr_server.dispatch_event(ON_PRE_LOGIN,
 			(self, conn, addr, name, login_data, cancel), on_executor_thread=False)
 		if canceled != 0:
 			return canceled == 1
@@ -708,23 +726,14 @@ class ProxyServer:
 			}))
 			return False
 
-		res = {
-			'version': {
-				'name': 'Idle',
-				'protocol': 0
-			},
-			'players': {
-				'max': 1,
-				'online': 0,
-			}
-		}
+		status = ServerStatus('Idle', 0, 1, 0, [], { 'text': self.modt }, None, False)
 		self.__mcdr_server.dispatch_event(ON_PING,
-			(self, conn, addr, login_data, res), on_executor_thread=False)
+			(self, conn, addr, login_data, status), on_executor_thread=False)
 		for handle in self._on_ping:
-			if handle(self, conn, addr, login_data, res):
+			if handle(self, conn, addr, login_data, status):
 				return False
 
-		send_package(conn, 0x00, encode_json(res))
+		send_package(conn, 0x00, encode_json(status.to_json()))
 		# recv ping packet
 		pkt = recv_package(conn)
 		if pkt.id == 0x01:
@@ -747,8 +756,10 @@ class ProxyServer:
 		return os.urandom(4)
 
 	def calc_server_hash(self, sid: str, secret: bytes) -> str:
+		assert self._enabled_packet_proxy
 		h = hashlib.sha1()
 		h.update(sid.encode('utf8'))
+		print('secret:', secret)
 		h.update(secret)
 		h.update(self._private_key.publickey().export_key('DER'))
 		d = int(h.hexdigest(), base=16) - (1 << 160)
@@ -806,9 +817,10 @@ def proxy_conn_stream(c1, c2, addr: tuple[str, int], *, final=None, **kwargs):
 	stream_forwarder(c2, c1, addr, final=final0, **kwargs)
 	return waiter
 
-def handle_login_packet_c2s(c: Conn, reader: PacketReader, event_dispatcher, cancel):
+def handle_login_packet_c2s(c: Conn, event: PacketEvent, event_dispatcher):
+	reader = event.reader
 	if reader.id == 0x01: # Encryption Response
-		cancel()
+		event.cancel()
 		encrypted_secret = reader.read_bytearray()
 		encrypted_verify_token: bytes | None = None
 		if Protocol.V1_19_3 > c.protocol and c.protocol >= Protocol.V1_19:
@@ -831,22 +843,41 @@ def handle_login_packet_c2s(c: Conn, reader: PacketReader, event_dispatcher, can
 		if c.server.config.online_mode:
 			client_hash_id = c.server.calc_server_hash('', secret)
 			debug('requesting client has joined', c.name, client_hash_id)
+			time.sleep(0.5)
 			data = mojang.get_has_joined(c.name, client_hash_id)
 			debug('requested client has joined', data)
 			if data is None:
 				c.kick('client did not send join request')
 				return
-			c._custom_data['uuid'] = data['uuid']
+			c._custom_data['uuid'] = uuid.UUID(data['id'])
 			c._custom_data['name'] = data['name']
-			c._custom_data['properties'] = data['properties']
+			if 'properties' in data:
+				c._custom_data['properties'] = data['properties']
 		debug(f'encrypted client {repr(secret)}')
 		encryptor = Encryptor(secret)
 		assert not isinstance(c._wrapped_conn_client, EncryptedConn)
 		c._wrapped_conn_client = EncryptedConn(c._wrapped_conn_client, encryptor)
+		buf = PacketBuffer()
+		buf.write_varint(0x02)
+		buf.write_uuid(c._custom_data['uuid'])
+		buf.write_string(c._custom_data['name'])
+		if c.protocol >= Protocol.V1_19:
+			properties = c._custom_data['properties']
+			buf.write_varint(len(properties))
+			for prop in properties:
+				buf.write_string(prop['name'])
+				buf.write_string(prop['value'])
+				has_sig = 'signature' in prop
+				buf.write_bool(has_sig)
+				if has_sig:
+					buf.write_string(prop['signature'])
+		c.send_client(buf.data)
+		c._client_status = ConnStatus.PLAY
 
-def handle_login_packet_s2c(c: Conn, reader: PacketReader, event_dispatcher, cancel):
+def handle_login_packet_s2c(c: Conn, event: PacketEvent, event_dispatcher):
+	reader = event.reader
 	if reader.id == 0x01: # Encryption Request
-		cancel()
+		event.cancel()
 		server_id = reader.read_string()
 		public_key = reader.read_bytearray()
 		verify_token = reader.read_bytearray()
@@ -869,11 +900,11 @@ def handle_login_packet_s2c(c: Conn, reader: PacketReader, event_dispatcher, can
 				return
 		c.kick('minecraft server enabled authorization, please disable first')
 	elif reader.id == 0x02: # Login Success
-		cancel()
+		event.cancel()
 		debug('Login success', c)
 		c._server_status = ConnStatus.PLAY
 		if c.client_status == ConnStatus.PLAY:
-			event_dispatcher(ON_POSTLOGIN, (c, ), on_executor_thread=False)
+			event_dispatcher(ON_POST_LOGIN, (c, ), on_executor_thread=False)
 		if 'client_verify_token' in c._custom_data:
 			return
 		if 'uuid' in c._custom_data:
@@ -896,23 +927,17 @@ def handle_login_packet_s2c(c: Conn, reader: PacketReader, event_dispatcher, can
 			c.send_client(reader.data)
 		c._client_status = ConnStatus.PLAY
 		if c.server_status == ConnStatus.PLAY:
-			event_dispatcher(ON_POSTLOGIN, (c, ), on_executor_thread=False)
+			event_dispatcher(ON_POST_LOGIN, (c, ), on_executor_thread=False)
 	elif reader.id == 0x03: # Set compression
+		event.cancel()
 		compress_threshold = reader.read_varint()
 		c._server_compress_threshold = compress_threshold
 		c.send_client(reader.data)
 		c._client_compress_threshold = compress_threshold
-		cancel()
 
 @MCDR.new_thread('lp_packet_forwarder')
 def packet_forwarder(c: Conn, c2s: bool, addr: tuple[str, int], event_dispatcher, *, final=None):
 	receiver, sender = (c.recv_client, c.send_server) if c2s else (c.recv_server, c.send_client)
-	event_id = ON_PACKET_C2S if c2s else ON_PACKET_S2C
-
-	next_packet: bytes | None = None
-	def cancel(replace: bytes | None = None):
-		nonlocal next_packet
-		next_packet = replace
 
 	cached_packets = []
 	try:
@@ -920,29 +945,29 @@ def packet_forwarder(c: Conn, c2s: bool, addr: tuple[str, int], event_dispatcher
 			reader = receiver()
 			if reader is None:
 				break
-			next_packet = reader.data
+			event = PacketEvent(c, reader, is_client=c2s)
 			if c2s:
 				if c.client_status == ConnStatus.LOGIN:
-					handle_login_packet_c2s(c, reader, event_dispatcher, cancel)
+					handle_login_packet_c2s(c, event, event_dispatcher)
+					if event.canceled:
+						continue
 			elif c.server_status == ConnStatus.LOGIN:
-				handle_login_packet_s2c(c, reader, event_dispatcher, cancel)
-			if c.client_status != c.server_status:
-				if next_packet is not None:
-					cached_packets.append(PacketReader(next_packet))
+				handle_login_packet_s2c(c, event, event_dispatcher)
+				if event.canceled:
 					continue
+			if c.client_status != c.server_status:
+				cached_packets.append(reader)
+				continue
 			elif len(cached_packets) > 0:
-				next_packet2: bytes | None = None
-				def cancel2(replace: bytes | None = None):
-					nonlocal next_packet2
-					next_packet2 = replace
 				for p in cached_packets:
-					event_dispatcher(event_id, (c, p, cancel2), on_executor_thread=False)
-					if next_packet2 is not None:
-						sender(next_packet2)
-			if next_packet is not None:
-				event_dispatcher(event_id, (c, reader, cancel), on_executor_thread=False)
-				if next_packet is not None:
-					sender(next_packet)
+					e = PacketEvent(c, p, is_client=c2s)
+					c.emit_packet(e)
+					if not e.canceled:
+						sender(p.data)
+				cached_packets.clear()
+			c.emit_packet(event)
+			if not event.canceled:
+				sender(reader.data)
 	except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, OSError):
 		pass
 	except Exception as e:

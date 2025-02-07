@@ -17,11 +17,14 @@ class IConnection(Protocol):
 		raise NotImplementedError()
 
 class Encryptor:
+	__slots__ = ('_secret', '_encryptor', '_decryptor')
+
 	def __init__(self, secret: bytes):
 		from Crypto.Cipher import AES
 
 		self._secret = secret
 		self._encryptor = AES.new(secret, AES.MODE_CFB, iv=secret, segment_size=8)
+		self._decryptor = AES.new(secret, AES.MODE_CFB, iv=secret, segment_size=8)
 
 	def secret(self) -> bytes:
 		return self._secret
@@ -30,9 +33,11 @@ class Encryptor:
 		return self._encryptor.encrypt(data)
 
 	def decrypt(self, data: bytes) -> bytes:
-		return self._encryptor.decrypt(data)
+		return self._decryptor.decrypt(data)
 
 class EncryptedConn:
+	__slots__ = ('_conn', '_encryptor')
+
 	def __init__(self, conn: IConnection, encryptor: Encryptor):
 		self._conn = conn
 		self._encryptor = encryptor
