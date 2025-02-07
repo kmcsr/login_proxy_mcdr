@@ -22,6 +22,7 @@ Similar project: <https://github.com/kmcsr/go-liter>
 | ID | Release Link |
 |----|----|
 | [kpi](https://github.com/kmcsr/kpi_mcdr) | <https://github.com/kmcsr/kpi_mcdr/releases> |
+| [packet_parser](https://github.com/kmcsr/packet_parser_mcdr) | <https://github.com/kmcsr/packet_parser_mcdr/releases> |
 
 ## How to configure it
 
