@@ -1,6 +1,6 @@
 #!/bin/bash
 
-minecraft_version=1.19.2
+minecraft_version=1.21.1
 
 cd $(dirname $0)
 BASE_DIR=$(pwd)

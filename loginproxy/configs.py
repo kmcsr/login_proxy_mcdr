@@ -57,6 +57,7 @@ class LPConfig(Config, msg_id=MSG_ID):
 		'whitelist.ip': 'Your ip is not in the whitelist',
 	}
 
+	allow_transfer: bool = True
 	enable_packet_proxy: bool = False
 	online_mode: bool = False
 

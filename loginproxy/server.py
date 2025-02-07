@@ -32,13 +32,19 @@ __all__ = [
 	'ProxyServer',
 ]
 
-DEBUG_PACKET = False
+DEBUG_PACKET = True
 
 class ConnStatus(int, enum.Enum):
-	HANDSHAKING = 0
-	STATUS      = 1
-	LOGIN       = 2
-	PLAY        = 3
+	HANDSHAKING   = 0
+	STATUS        = 1
+	LOGIN         = 2
+	CONFIGURATION = 3
+	PLAY          = 4
+
+	@classmethod
+	def from_packet_name(cls, name: str) -> Self:
+		status = name.split('_', 1)[0].upper()
+		return getattr(cls, status)
 
 class PacketEvent(Event):
 	__slots__ = ('_conn', '_reader', '_is_client')
@@ -139,7 +145,7 @@ class Conn(EventEmitter[PacketEvent]):
 	def server_status(self) -> ConnStatus:
 		return self._server_status
 
-	def _recvpkt(self, conn: IConnection, *, compress_threshold_getter) -> PacketReader:
+	def _recvpkt(self, conn: IConnection, *, compress_threshold_getter, side: str) -> PacketReader:
 		leng = recv_varint(conn)
 		leng1 = leng
 		data_leng, size = 0, 0
@@ -158,20 +164,20 @@ class Conn(EventEmitter[PacketEvent]):
 				raise
 		packet = PacketReader(data)
 		if DEBUG_PACKET:
-			debug(f'Received packet; leng={leng + size}; compressed={compressed}; data_leng={data_leng}; id={packet.id}')
+			debug(f'Received packet; leng={leng + size}; compressed={compressed}; data_leng={data_leng}; id={hex(packet.id)} from {side}')
 		return packet
 
 	def recv_client(self) -> PacketReader:
 		"""
 		Recv packet from the client
 		"""
-		return self._recvpkt(self._wrapped_conn_client, compress_threshold_getter=lambda: self._client_compress_threshold)
+		return self._recvpkt(self._wrapped_conn_client, compress_threshold_getter=lambda: self._client_compress_threshold, side='client')
 
 	def recv_server(self) -> PacketReader:
 		"""
 		Recv packet from the server
 		"""
-		return self._recvpkt(self._wrapped_conn_server, compress_threshold_getter=lambda: self._server_compress_threshold)
+		return self._recvpkt(self._wrapped_conn_server, compress_threshold_getter=lambda: self._server_compress_threshold, side='server')
 
 	def _sendpkt(self, conn: IConnection, data: bytes, *, lock: threading.Lock, compress_threshold: int, side: str):
 		data_leng = 0
@@ -183,22 +189,22 @@ class Conn(EventEmitter[PacketEvent]):
 			data = encode_varint(data_leng) + data
 		with lock:
 			if DEBUG_PACKET:
-				debug(f'Sending packet; leng={len(data)}; compressed={compress_threshold >= 0}; data_leng={data_leng}; id={did}; side={side}')
+				debug(f'Sending packet; leng={len(data)}; compressed={compress_threshold >= 0}; data_leng={data_leng}; id={hex(did)}; to {side}')
 			conn.sendall(encode_varint(len(data)) + data)
 
-	def send_client(self, data: bytes, pid: int | None = None):
+	def send_client(self, data: bytes):
 		"""
 		Send packet to the client
 		"""
-		if pid is not None:
-			data = encode_varint(pid) + data
 		self._sendpkt(self._wrapped_conn_client, data, lock=self._client_send_lock, compress_threshold=self._client_compress_threshold, side='client')
+		debug('sent on status', self.client_status)
 
 	def send_server(self, data: bytes):
 		"""
 		Send packet to the server
 		"""
 		self._sendpkt(self._wrapped_conn_server, data, lock=self._server_send_lock, compress_threshold=self._server_compress_threshold, side='server')
+		debug('sent on status', self.server_status)
 
 	@property
 	def server(self) -> 'ProxyServer':
@@ -208,20 +214,38 @@ class Conn(EventEmitter[PacketEvent]):
 	def isalive(self) -> bool:
 		return self._alive
 
+	def _get_disconnect_packet_id(self) -> int:
+		if self.client_status == ConnStatus.LOGIN:
+			return 0x00
+		elif self.client_status == ConnStatus.PLAY:
+			return Protocol.get_disconnect_play_id(self.protocol)
+		elif self.client_status == ConnStatus.CONFIGURATION:
+			return 0x02
+		raise ValueError(f'Unexpect client status {self.client_status}')
+
 	def kick(self, reason: str = 'You have been kicked', *,
 		server: MCDR.ServerInterface | None = None) -> bool:
 		if not self.isalive:
 			return False
 		debug(f'kicking client {self.name}{self.addr}: {reason}')
 		if not self._streaming:
-			disconnect_id = Protocol.get_disconnect_play_id(self.protocol) if self.client_status == ConnStatus.PLAY else 0x00
-			self.send_client(encode_varint(disconnect_id) + encode_json({
-				'text': 'LoginProxy: ' + reason,
-			}))
-			self.conn_client.close()
-			self.conn_server.close()
-			self.server._pop_uconn(self.conn_client)
+			disconnect_id = self._get_disconnect_packet_id()
+			if self.protocol >= Protocol.V1_20_4 and self.client_status != ConnStatus.LOGIN:
+				from packet_parser import nbt
+				buf = PacketBuffer()
+				buf.write_varint(disconnect_id)
+				nbt.String('LoginProxy: ' + reason).to_bytes(buf)
+				debug('Disconnected:', buf.data)
+				self.send_client(buf.data)
+			else:
+				self.send_client(encode_varint(disconnect_id) + encode_json({
+					'text': 'LoginProxy: ' + reason,
+				}))
 			self._alive = False
+			self.conn_server.close()
+			time.sleep(0.5)
+			self.conn_client.close()
+			self.server._pop_uconn(self.conn_client)
 			return True
 		if self._kicking is not None:
 			return False
@@ -236,7 +260,6 @@ class Conn(EventEmitter[PacketEvent]):
 
 	def disconnect(self) -> None:
 		log_info('Force disconnecting player {0}[{1[0]}:{1[1]}]'.format(self.name, self.addr))
-		debug(''.join(traceback.format_stack()))
 		if self._kicking is not None:
 			self._kicking.cancel()
 			self._kicking = None
@@ -269,23 +292,52 @@ class Conn(EventEmitter[PacketEvent]):
 			if slient_fail:
 				return False
 			raise ValueError(f'{repr(packet_name)} does not exists in protocol {idset.version} (include {self.protocol})')
-		if idset.is_c2s[packet_name]:
+
+		is_c2s = idset.is_c2s[packet_name]
+		status = ConnStatus.from_packet_name(packet_name)
+
+		if is_c2s:
 			@functools.wraps(callback)
 			def cb(event: PacketEvent):
-				if event.is_client:
+				if event.is_client and event.conn.client_status == status:
 					callback(event)
 		else:
 			@functools.wraps(callback)
 			def cb(event: PacketEvent):
-				if event.is_server:
+				if event.is_server and event.conn.server_status == status:
 					callback(event)
 		self.register(packet_id, cb, priority)
 		return True
 
+	def new_packet(self, packet_name: str) -> 'PacketBuilder':
+		idset = self.get_idset()
+		packet_id: int | None = getattr(idset, packet_name, None)
+		if packet_id is None:
+			raise ValueError(f'{repr(packet_name)} does not exists in protocol {idset.version} (include {self.protocol})')
+		status = ConnStatus.from_packet_name(packet_name)
+		return PacketBuilder(self, idset.is_c2s[packet_name], status, packet_id)
+
+class PacketBuilder(PacketBuffer):
+	__slots__ = ('_conn', '_status', '_is_c2s')
+	def __init__(self, conn: Conn, is_c2s: bool, status: ConnStatus, packet_id: int):
+		super().__init__()
+		self._conn = conn
+		self._status = status
+		self._is_c2s = is_c2s
+		self.write_varint(packet_id)
+
+	def send(self) -> None:
+		if self._is_c2s:
+			assert self._status == self._conn.server_status
+			self._conn.send_server(self.data)
+		else:
+			assert self._status == self._conn.client_status
+			self._conn.send_client(self.data)
+
 class ProxyServer:
 	def __init__(self, server: MCDR.ServerInterface, base: str, config: LPConfig, whlist: ListConfig):
 		cls = self.__class__
-		self.__mcdr_server = server
+		self._mcdr_server = server
 		self._base = base
 		self.__config = config
 		self.__whlist = whlist
@@ -301,6 +353,7 @@ class ProxyServer:
 		self._modt = self._properties.get_str('motd', 'A Minecraft Server')
 		self._max_players = self._properties.get_int('max-players', 20)
 
+		self._online_mode = self.config.online_mode
 		self._enabled_packet_proxy = self.config.enable_packet_proxy
 		if self._enabled_packet_proxy:
 			from Crypto.Cipher import PKCS1_v1_5
@@ -336,6 +389,10 @@ class ProxyServer:
 	@property
 	def server_addr(self) -> tuple[str, int]:
 		return self._server_addr
+
+	@property
+	def online_mode(self) -> bool:
+		return self._online_mode
 
 	@property
 	def modt(self) -> str:
@@ -400,7 +457,7 @@ class ProxyServer:
 
 	@staticmethod
 	def default_onlogin(self, conn, addr: tuple[str, int], name: str, login_data: dict):
-		if not self.__mcdr_server.is_server_startup():
+		if not self._mcdr_server.is_server_startup():
 			return False
 		log_info('Player {0}[[{1[0]}]:{1[1]}] trying to join'.format(name, addr))
 		sokt = self.new_connection(login_data)
@@ -421,19 +478,19 @@ class ProxyServer:
 				self._conns.pop(c.name, None)
 				if c.isalive:
 					c.disconnect()
-			self.__mcdr_server.dispatch_event(ON_LOGOFF, (c, ), on_executor_thread=False)
+			self._mcdr_server.dispatch_event(ON_LOGOFF, (c, ), on_executor_thread=False)
 
 		canceled = False
 		def cancel():
 			nonlocal canceled
 			canceled = True
-		self.__mcdr_server.dispatch_event(ON_LOGIN, (c, cancel), on_executor_thread=False)
+		self._mcdr_server.dispatch_event(ON_LOGIN, (c, cancel), on_executor_thread=False)
 		if canceled:
 			final()
 			return True
 
 		if self._enabled_packet_proxy:
-			proxy_conn_packet(c, self.__mcdr_server.dispatch_event, final=final)
+			proxy_conn_packet(c, final=final)
 		else:
 			c._streaming = True
 			proxy_conn_stream(conn, sokt, addr, final=final)
@@ -629,6 +686,13 @@ class ProxyServer:
 				login_data['host'] = pkt.read_string()
 				login_data['port'] = pkt.read_ushort()
 				state = pkt.read_varint()
+				if state == 3: # transfer
+					if not self.config.allow_transfer:
+						send_package(conn, 0x00, encode_json({
+							'translate': 'multiplayer.disconnect.transfers_disabled',
+						}))
+						return
+					state = 2
 				login_data['state'] = state
 				if state == 1:
 					pkt = recv_package(conn)
@@ -680,7 +744,7 @@ class ProxyServer:
 			return False
 		if self.config.enable_whitelist and \
 			name not in self.whlist.allowed and \
-			self.__mcdr_server.get_permission_level(name) < self.config.whitelist_level:
+			self._mcdr_server.get_permission_level(name) < self.config.whitelist_level:
 			debug('Disconnected {1}[[{0[0]}]:{0[1]}] for name not in whilelist'.format(addr, name))
 			send_package(conn, 0x00, encode_json({
 				'text': self.config.messages['whitelist.name'],
@@ -691,7 +755,7 @@ class ProxyServer:
 		def cancel(handled: bool = False):
 			nonlocal canceled
 			canceled = 1 if handled else 2
-		self.__mcdr_server.dispatch_event(ON_PRE_LOGIN,
+		self._mcdr_server.dispatch_event(ON_PRE_LOGIN,
 			(self, conn, addr, name, login_data, cancel), on_executor_thread=False)
 		if canceled != 0:
 			return canceled == 1
@@ -742,7 +806,7 @@ class ProxyServer:
 			return False
 
 		status = ServerStatus('Idle', 0, 1, 0, [], { 'text': self.modt }, None, False)
-		self.__mcdr_server.dispatch_event(ON_PING,
+		self._mcdr_server.dispatch_event(ON_PING,
 			(self, conn, addr, login_data, status), on_executor_thread=False)
 		for handle in self._on_ping:
 			if handle(self, conn, addr, login_data, status):
@@ -776,37 +840,8 @@ class ProxyServer:
 		h.update(sid.encode('utf8'))
 		h.update(secret)
 		h.update(self._private_key.publickey().export_key('DER'))
-		d = int(h.hexdigest(), base=16) - (1 << 160)
+		d = int.from_bytes(h.digest(), signed=True)
 		return f'{d:x}'
-
-def do_once_wrapper(callback):
-	did = False
-	@functools.wraps(callback)
-	def w(*args, **kwargs):
-		if did:
-			return
-		did = True
-		return callback(*args, **kwargs)
-	return w
-
-@MCDR.new_thread('lp_stream_forwarder')
-def stream_forwarder(src, dst, addr: tuple[str, int], *, chunk_size: int = 1024 * 128, final=None): # chunk_size = 128KB
-	try:
-		while True:
-			buf = src.recv(chunk_size)
-			if len(buf) == 0:
-				break
-			dst.sendall(buf)
-	except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, OSError):
-		pass
-	except Exception as e:
-		log_warn('Error when handle[{0[0]}:{0[1]}]: {1}'.format(addr, str(e)))
-		traceback.print_exc()
-	finally:
-		src.close()
-		dst.close()
-		if final is not None:
-			final()
 
 def proxy_conn_stream(c1, c2, addr: tuple[str, int], *, final=None, **kwargs):
 	cond = threading.Condition(threading.Lock())
@@ -831,171 +866,26 @@ def proxy_conn_stream(c1, c2, addr: tuple[str, int], *, final=None, **kwargs):
 	stream_forwarder(c2, c1, addr, final=final0, **kwargs)
 	return waiter
 
-def handle_login_packet_c2s(c: Conn, event: PacketEvent, event_dispatcher):
-	reader = event.reader
-	if reader.id == 0x01: # Encryption Response
-		event.cancel()
-		encrypted_secret = reader.read_bytearray()
-		encrypted_verify_token: bytes | None = None
-		if Protocol.V1_19_3 > c.protocol and c.protocol >= Protocol.V1_19:
-			has_verify_token = reader.read_bool()
-			if has_verify_token:
-				encrypted_verify_token = reader.read_bytearray()
-			else:
-				salt = reader.read_long()
-				signature = reader.read_bytearray()
-		else:
-			encrypted_verify_token = reader.read_bytearray()
-		secret = c.server._cipher.decrypt(encrypted_secret, None)
-		assert secret is not None
-
-		debug(f'encrypted client {repr(secret)}')
-		encryptor = Encryptor(secret)
-		assert not isinstance(c._wrapped_conn_client, EncryptedConn)
-		c._wrapped_conn_client = EncryptedConn(c._wrapped_conn_client, encryptor)
-
-		if encrypted_verify_token is not None:
-			# TODO: salt-signature verify version
-			verify_token = c.server._cipher.decrypt(encrypted_verify_token, None)
-			if verify_token != c._custom_data['client_verify_token']:
-				c.kick('verify token incorrect')
-				return
-		if c.server.config.online_mode:
-			client_hash_id = c.server.calc_server_hash('', secret)
-			debug('requesting client has joined', c.name, client_hash_id)
-			time.sleep(0.5)
-			data = mojang.get_has_joined(c.name, client_hash_id)
-			debug('requested client has joined', data)
-			if data is None:
-				c.kick('client did not send join request')
-				return
-			c._custom_data['uuid'] = uuid.UUID(data['id'])
-			c._custom_data['name'] = data['name']
-			if 'properties' in data:
-				c._custom_data['properties'] = data['properties']
-		buf = PacketBuffer()
-		buf.write_varint(0x02)
-		buf.write_uuid(c._custom_data['uuid'])
-		buf.write_string(c._custom_data['name'])
-		if c.protocol >= Protocol.V1_19:
-			properties = c._custom_data['properties']
-			buf.write_varint(len(properties))
-			for prop in properties:
-				buf.write_string(prop['name'])
-				buf.write_string(prop['value'])
-				has_sig = 'signature' in prop
-				buf.write_bool(has_sig)
-				if has_sig:
-					buf.write_string(prop['signature'])
-		c.send_client(buf.data)
-		c._client_status = ConnStatus.PLAY
-		if c.server_status == ConnStatus.PLAY:
-			event_dispatcher(ON_POST_LOGIN, (c, ), on_executor_thread=False)
-
-def handle_login_packet_s2c(c: Conn, event: PacketEvent, event_dispatcher):
-	reader = event.reader
-	if reader.id == 0x01: # Encryption Request
-		event.cancel()
-		server_id = reader.read_string()
-		public_key = reader.read_bytearray()
-		verify_token = reader.read_bytearray()
-		if c.protocol >= Protocol.V1_20_5:
-			should_auth = reader.read_bool()
-			if not should_auth:
-				secret = c.server.generate_secret()
-				encrypted_secret = c.server._cipher.encrypt(secret)
-				encrypted_verify_token = c.server._cipher.encrypt(verify_token)
-				server_hash_id = c.server.calc_server_hash(server_id, secret)
-				c._custom_data['server_secret'] = secret
-				c._custom_data['server_hash_id'] = server_hash_id
-				buf = PacketBuffer()
-				buf.write_varint(0x01)
-				buf.write_bytearray(encrypted_secret)
-				if Protocol.V1_19_3 > c.protocol and c.protocol >= Protocol.V1_19:
-					buf.write_bool(True)
-				buf.write_bytearray(encrypted_verify_token)
-				c.send_server(buf.data)
-				return
-		c.kick('minecraft server enabled authorization, please disable first')
-	elif reader.id == 0x02: # Login Success
-		event.cancel()
-		debug('Serverside login success', c)
-		c._server_status = ConnStatus.PLAY
-		if 'client_verify_token' in c._custom_data:
-			return
-		if c.client_status == ConnStatus.PLAY:
-			event_dispatcher(ON_POST_LOGIN, (c, ), on_executor_thread=False)
-			return
-		if 'uuid' in c._custom_data:
-			buf = PacketBuffer()
-			buf.write_varint(0x02)
-			buf.write_uuid(c._custom_data['uuid'])
-			buf.write_string(c._custom_data['name'])
-			if c.protocol >= Protocol.V1_19:
-				properties = c._custom_data['properties']
-				buf.write_varint(len(properties))
-				for prop in properties:
-					buf.write_string(prop['name'])
-					buf.write_string(prop['value'])
-					has_sig = 'signature' in prop
-					buf.write_bool(has_sig)
-					if has_sig:
-						buf.write_string(prop['signature'])
-			c.send_client(buf.data)
-		else:
-			c.send_client(reader.data)
-		c._client_status = ConnStatus.PLAY
-		event_dispatcher(ON_POST_LOGIN, (c, ), on_executor_thread=False)
-	elif reader.id == 0x03: # Set compression
-		event.cancel()
-		compress_threshold = reader.read_varint()
-		c._server_compress_threshold = compress_threshold
-		c.send_client(reader.data)
-		c._client_compress_threshold = compress_threshold
-
-@MCDR.new_thread('lp_packet_forwarder')
-def packet_forwarder(c: Conn, c2s: bool, addr: tuple[str, int], event_dispatcher, *, final=None):
-	receiver, sender = (c.recv_client, c.send_server) if c2s else (c.recv_server, c.send_client)
-
-	cached_packets = []
+@MCDR.new_thread('lp_stream_forwarder')
+def stream_forwarder(src, dst, addr: tuple[str, int], *, chunk_size: int = 1024 * 128, final=None): # chunk_size = 128KB
 	try:
 		while True:
-			reader = receiver()
-			if reader is None:
+			buf = src.recv(chunk_size)
+			if len(buf) == 0:
 				break
-			event = PacketEvent(c, reader, is_client=c2s)
-			if c2s:
-				if c.client_status == ConnStatus.LOGIN:
-					handle_login_packet_c2s(c, event, event_dispatcher)
-					if event.canceled:
-						continue
-			elif c.server_status == ConnStatus.LOGIN:
-				handle_login_packet_s2c(c, event, event_dispatcher)
-				if event.canceled:
-					continue
-			if c.client_status != c.server_status:
-				cached_packets.append(reader)
-				continue
-			elif len(cached_packets) > 0:
-				for p in cached_packets:
-					e = PacketEvent(c, p, is_client=c2s)
-					c.emit_packet(e)
-					if not e.canceled:
-						sender(p.data)
-				cached_packets.clear()
-			c.emit_packet(event)
-			if not event.canceled:
-				sender(reader.data)
+			dst.sendall(buf)
 	except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, OSError):
 		pass
 	except Exception as e:
 		log_warn('Error when handle[{0[0]}:{0[1]}]: {1}'.format(addr, str(e)))
 		traceback.print_exc()
 	finally:
+		src.close()
+		dst.close()
 		if final is not None:
 			final()
 
-def proxy_conn_packet(c: Conn, event_dispatcher, *, final=None, **kwargs):
+def proxy_conn_packet(c: Conn, *, final=None, **kwargs):
 	cond = threading.Condition(threading.Lock())
 	finished = False
 	def waiter():
@@ -1016,17 +906,232 @@ def proxy_conn_packet(c: Conn, event_dispatcher, *, final=None, **kwargs):
 		if final is not None:
 			final()
 
-	if c.server.config.online_mode:
+	c.register_packet('login_encryption_response', _handle_login_encryption_response)
+	c.register_packet('login_acknowledged', _handle_login_acknowledged, priority=-1000)
+	c.register_packet('configuration_acknowledge_finish_configuration', _handle_configuration_acknowledge_finish_configuration, priority=-1000)
+	c.register_packet('login_encryption_request', _handle_login_encryption_request)
+	c.register_packet('login_success', _handle_login_success)
+	c.register_packet('login_set_compression', _handle_login_set_compression)
+
+	from .packet_patcher import patch_connection
+	patch_connection(c)
+
+	if c.server.online_mode:
 		verify_token = c.server.generate_verify_token()
 		c._custom_data['client_verify_token'] = verify_token
-		encrypt_req = PacketBuffer().write_varint(0x1)
-		encrypt_req.write_string('')
-		encrypt_req.write_bytearray(c.server._private_key.public_key().export_key('DER'))
-		encrypt_req.write_bytearray(verify_token)
+		encrypt_req = c.new_packet('login_encryption_request').\
+			write_string('').\
+			write_bytearray(c.server._private_key.public_key().export_key('DER')).\
+			write_bytearray(verify_token)
 		if c.protocol >= Protocol.V1_20_5:
 			encrypt_req.write_bool(True)
 		debug(f'sending encryption request')
-		c.send_client(encrypt_req.data)
-	packet_forwarder(c, True, c.addr, event_dispatcher, final=final0, **kwargs)
-	packet_forwarder(c, False, c.addr, event_dispatcher, final=final0, **kwargs)
+		encrypt_req.send()
+
+	packet_forwarder(c, True, c.addr, final=final0, **kwargs)
+	packet_forwarder(c, False, c.addr, final=final0, **kwargs)
 	return waiter
+
+@MCDR.new_thread('lp_packet_forwarder')
+def packet_forwarder(c: Conn, c2s: bool, addr: tuple[str, int], *, final=None):
+	receiver, sender = (c.recv_client, c.send_server) if c2s else (c.recv_server, c.send_client)
+
+	cached_packets: list[bytes] = []
+	try:
+		while True:
+			reader = receiver()
+			if reader is None:
+				break
+			if len(cached_packets) > 0 and c.client_status == c.server_status:
+				for p in cached_packets:
+					sender(p)
+				cached_packets.clear()
+			event = PacketEvent(c, reader, is_client=c2s)
+			c.emit_packet(event)
+			if not event.canceled:
+				if c.client_status != c.server_status:
+					cached_packets.append(reader.data)
+					continue
+				sender(reader.data)
+	except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, OSError):
+		pass
+	except Exception as e:
+		log_warn('Error when handle[{0[0]}:{0[1]}]: {1}'.format(addr, str(e)))
+		traceback.print_exc()
+	finally:
+		if final is not None:
+			final()
+
+### C2S ###
+
+def _handle_login_encryption_response(event: PacketEvent):	
+	event.cancel()
+
+	c = event.conn
+	packet = event.reader
+	encrypted_secret = packet.read_bytearray()
+	encrypted_verify_token: bytes | None = None
+	if Protocol.V1_19_3 > c.protocol and c.protocol >= Protocol.V1_19:
+		has_verify_token = packet.read_bool()
+		if has_verify_token:
+			encrypted_verify_token = packet.read_bytearray()
+		else:
+			salt = packet.read_long()
+			signature = packet.read_bytearray()
+	else:
+		encrypted_verify_token = packet.read_bytearray()
+	secret = c.server._cipher.decrypt(encrypted_secret, None)
+	assert secret is not None
+
+	debug(f'encrypted client {repr(secret)}')
+	encryptor = Encryptor(secret)
+	assert not isinstance(c._wrapped_conn_client, EncryptedConn)
+	c._wrapped_conn_client = EncryptedConn(c._wrapped_conn_client, encryptor)
+
+	if encrypted_verify_token is not None:
+		# TODO: salt-signature verify version
+		verify_token = c.server._cipher.decrypt(encrypted_verify_token, None)
+		if verify_token != c._custom_data['client_verify_token']:
+			c.kick('verify token incorrect')
+			return
+
+	if c.server.online_mode:
+		client_hash_id = c.server.calc_server_hash('', secret)
+		debug('requesting client has joined', c.name, client_hash_id)
+		time.sleep(0.5)
+		data = mojang.get_has_joined(c.name, client_hash_id)
+		debug('requested client has joined', data)
+		if data is None:
+			c.kick('client did not send join request')
+			return
+		c._custom_data['uuid'] = uuid.UUID(data['id'])
+		c._custom_data['name'] = data['name']
+		if 'properties' in data:
+			c._custom_data['properties'] = data['properties']
+
+	buf = PacketBuffer()
+	buf.write_varint(0x02)
+	buf.write_uuid(c._custom_data['uuid'])
+	buf.write_string(c._custom_data['name'])
+	if c.protocol >= Protocol.V1_19:
+		properties = c._custom_data['properties']
+		buf.write_varint(len(properties))
+		for prop in properties:
+			buf.write_string(prop['name'])
+			buf.write_string(prop['value'])
+			has_sig = 'signature' in prop
+			buf.write_bool(has_sig)
+			if has_sig:
+				buf.write_string(prop['signature'])
+		if Protocol.V1_21_1 >= c.protocol and c.protocol >= Protocol.V1_20_5:
+			buf.write_bool(True) # Strict Error Handling
+	c.send_client(buf.data)
+
+	if c.protocol < Protocol.V1_21:
+		c._client_status = ConnStatus.PLAY
+		if c.server_status != ConnStatus.LOGIN:
+			c.server._mcdr_server.dispatch_event(ON_POST_LOGIN, (c, ), on_executor_thread=False)
+			c.server._mcdr_server.dispatch_event(ON_PLAY, (c, ), on_executor_thread=False)
+
+def _handle_login_acknowledged(event: PacketEvent):
+	event.cancel()
+	c = event.conn
+	c._client_status = ConnStatus.CONFIGURATION
+	c.send_server(event.reader.data)
+	c._server_status = ConnStatus.CONFIGURATION
+	c.server._mcdr_server.dispatch_event(ON_POST_LOGIN, (c, ), on_executor_thread=False)
+
+def _handle_configuration_acknowledge_finish_configuration(event: PacketEvent):
+	event.cancel()
+	c = event.conn
+	c._client_status = ConnStatus.PLAY
+	c.send_server(event.reader.data)
+	c._server_status = ConnStatus.PLAY
+	c.server._mcdr_server.dispatch_event(ON_PLAY, (c, ), on_executor_thread=False)
+
+### S2C ###
+
+def _handle_login_encryption_request(event: PacketEvent):
+	KICK_MESSAGE = 'minecraft server enabled authorization, please disable first'
+
+	event.cancel()
+
+	c = event.conn
+	packet = event.reader
+	server_id = packet.read_string()
+	public_key = packet.read_bytearray()
+	verify_token = packet.read_bytearray()
+	if c.protocol < Protocol.V1_20_5:
+		c.kick(KICK_MESSAGE)
+		return
+	should_auth = packet.read_bool()
+	if should_auth:
+		c.kick(KICK_MESSAGE)
+		return
+
+	secret = c.server.generate_secret()
+	encrypted_secret = c.server._cipher.encrypt(secret)
+	encrypted_verify_token = c.server._cipher.encrypt(verify_token)
+	server_hash_id = c.server.calc_server_hash(server_id, secret)
+	c._custom_data['server_hash_id'] = server_hash_id
+	buf = PacketBuffer()
+	buf.write_varint(0x01)
+	buf.write_bytearray(encrypted_secret)
+	if Protocol.V1_19_3 > c.protocol and c.protocol >= Protocol.V1_19:
+		buf.write_bool(True)
+	buf.write_bytearray(encrypted_verify_token)
+	c.send_server(buf.data)
+
+	debug(f'encrypted server {repr(secret)}')
+	encryptor = Encryptor(secret)
+	assert not isinstance(c._wrapped_conn_server, EncryptedConn)
+	c._wrapped_conn_server = EncryptedConn(c._wrapped_conn_server, encryptor)
+
+def _handle_login_success(event: PacketEvent):
+	event.cancel()
+
+	c = event.conn
+	c._custom_data['server_uuid'] = event.reader.read_uuid()
+	debug('Serverside login success', c, 'with uuid', c._custom_data['server_uuid'])
+
+	if c.protocol < Protocol.V1_21:
+		c._server_status = ConnStatus.PLAY
+	if 'client_verify_token' in c._custom_data:
+		return
+	if c.client_status != ConnStatus.LOGIN: # c.protocol < Protocol.V1_21:
+		c.server._mcdr_server.dispatch_event(ON_POST_LOGIN, (c, ), on_executor_thread=False)
+		c.server._mcdr_server.dispatch_event(ON_PLAY, (c, ), on_executor_thread=False)
+		return
+	if 'uuid' in c._custom_data:
+		buf = PacketBuffer()
+		buf.write_varint(0x02)
+		buf.write_uuid(c._custom_data['uuid'])
+		buf.write_string(c._custom_data['name'])
+		if c.protocol >= Protocol.V1_19:
+			properties = c._custom_data['properties']
+			buf.write_varint(len(properties))
+			for prop in properties:
+				buf.write_string(prop['name'])
+				buf.write_string(prop['value'])
+				has_sig = 'signature' in prop
+				buf.write_bool(has_sig)
+				if has_sig:
+					buf.write_string(prop['signature'])
+			if Protocol.V1_21_1 >= c.protocol and c.protocol >= Protocol.V1_20_5:
+				buf.write_bool(True)
+		c.send_client(buf.data)
+	else:
+		c.send_client(event.reader.data)
+	if c.protocol < Protocol.V1_21:
+		c._client_status = ConnStatus.PLAY
+		c.server._mcdr_server.dispatch_event(ON_POST_LOGIN, (c, ), on_executor_thread=False)
+		c.server._mcdr_server.dispatch_event(ON_PLAY, (c, ), on_executor_thread=False)
+
+def _handle_login_set_compression(event: PacketEvent):
+	event.cancel()
+
+	c = event.conn
+	compress_threshold = event.reader.read_varint()
+	c._server_compress_threshold = compress_threshold
+	c.send_client(event.reader.data)
+	c._client_compress_threshold = compress_threshold

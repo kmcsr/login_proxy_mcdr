@@ -253,89 +253,89 @@ class PacketBuffer:
 	def data(self) -> bytes:
 		return self._data
 
-	def write(self, data: bytes):
+	def write(self, data: bytes) -> Self:
 		self._data += data
 		return self
 
-	def write_byte(self, v: int):
+	def write_byte(self, v: int) -> Self:
 		self._data += ByteStruct.pack(v)
 		return self
 
-	def write_ubyte(self, v: int):
+	def write_ubyte(self, v: int) -> Self:
 		self._data += UByteStruct.pack(v)
 		return self
 
-	def write_short(self, v: int):
+	def write_short(self, v: int) -> Self:
 		self._data += ShortStruct.pack(v)
 		return self
 
-	def write_ushort(self, v: int):
+	def write_ushort(self, v: int) -> Self:
 		self._data += UShortStruct.pack(v)
 		return self
 
-	def write_int(self, v: int):
+	def write_int(self, v: int) -> Self:
 		self._data += IntStruct.pack(v)
 		return self
 
-	def write_uint(self, v: int):
+	def write_uint(self, v: int) -> Self:
 		self._data += UIntStruct.pack(v)
 		return self
 
-	def write_long(self, v: int):
+	def write_long(self, v: int) -> Self:
 		self._data += LongStruct.pack(v)
 		return self
 
-	def write_ulong(self, v: int):
+	def write_ulong(self, v: int) -> Self:
 		self._data += ULongStruct.pack(v)
 		return self
 
-	def write_float(self, v :float):
+	def write_float(self, v :float) -> Self:
 		self._data += FloatStruct.pack(v)
 		return self
 
-	def write_double(self, v :float):
+	def write_double(self, v :float) -> Self:
 		self._data += DoubleStruct.pack(v)
 		return self
 
-	def write_bool(self, v: bool):
+	def write_bool(self, v: bool) -> Self:
 		self._data += encode_bool(v)
 		return self
 
-	def write_varint(self, v: int):
+	def write_varint(self, v: int) -> Self:
 		assert v >> 32 == 0 and v >= 0, f'{hex(v)} is not in range'
 		self._data += encode_varint(v)
 		return self
 
-	def write_varlong(self, v: int):
+	def write_varlong(self, v: int) -> Self:
 		assert v >> 64 == 0 and v >= 0, f'{hex(v)} is not in range'
 		self._data += encode_varint(v)
 		return self
 
-	def write_pos_1_8(self, v: tuple[int, int, int]):
+	def write_pos_1_8(self, v: tuple[int, int, int]) -> Self:
 		x, y, z = v
 		self.write_long(((x & 0x3ffffff) << 38) | ((y & 0xfff) << 26) | (z & 0x3ffffff))
 		return self
 
-	def write_pos_1_14(self, v: tuple[int, int, int]):
+	def write_pos_1_14(self, v: tuple[int, int, int]) -> Self:
 		x, y, z = v
 		self.write_long(((x & 0x3ffffff) << 38) | ((z & 0x3ffffff) << 12) | (y & 0xfff))
 		return self
 
-	def write_string(self, v: str):
+	def write_string(self, v: str) -> Self:
 		b = v.encode('utf8')
 		self.write_varint(len(b)).write(b)
 		return self
 
-	def write_json(self, v: dict):
+	def write_json(self, v: dict) -> Self:
 		b = json.dumps(v).encode('utf8')
 		self.write_varint(len(b)).write(b)
 		return self
 
-	def write_uuid(self, v: uuid.UUID):
+	def write_uuid(self, v: uuid.UUID) -> Self:
 		self.write(v.bytes)
 		return self
 
-	def write_bytearray(self, v: bytes):
+	def write_bytearray(self, v: bytes) -> Self:
 		self.write_varint(len(v)).write(v)
 		return self
 
