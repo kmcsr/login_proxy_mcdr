@@ -64,6 +64,14 @@ class PacketEvent(Event):
 		return self._reader
 
 	@property
+	def protocol(self) -> int:
+		return self._conn.protocol
+
+	@property
+	def player(self) -> str:
+		return self._conn.name
+
+	@property
 	def id(self) -> int:
 		return self._reader.id
 
@@ -319,6 +327,7 @@ class Conn(EventEmitter[PacketEvent]):
 
 class PacketBuilder(PacketBuffer):
 	__slots__ = ('_conn', '_status', '_is_c2s')
+
 	def __init__(self, conn: Conn, is_c2s: bool, status: ConnStatus, packet_id: int):
 		super().__init__()
 		self._conn = conn
