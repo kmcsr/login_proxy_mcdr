@@ -32,6 +32,8 @@ __all__ = [
 	'ProxyServer',
 ]
 
+DEBUG_PACKET = False
+
 class ConnStatus(int, enum.Enum):
 	HANDSHAKING = 0
 	STATUS      = 1
@@ -155,7 +157,8 @@ class Conn(EventEmitter[PacketEvent]):
 				debug(f'Incorrect compressed data: {repr(data)}')
 				raise
 		packet = PacketReader(data)
-		debug(f'Received packet; leng={leng + size}; compressed={compressed}; data_leng={data_leng}; id={packet.id}')
+		if DEBUG_PACKET:
+			debug(f'Received packet; leng={leng + size}; compressed={compressed}; data_leng={data_leng}; id={packet.id}')
 		return packet
 
 	def recv_client(self) -> PacketReader:
@@ -179,7 +182,8 @@ class Conn(EventEmitter[PacketEvent]):
 				data = zlib.compress(data)
 			data = encode_varint(data_leng) + data
 		with lock:
-			debug(f'Sending packet; leng={len(data)}; compressed={compress_threshold >= 0}; data_leng={data_leng}; id={did}; side={side}')
+			if DEBUG_PACKET:
+				debug(f'Sending packet; leng={len(data)}; compressed={compress_threshold >= 0}; data_leng={data_leng}; id={did}; side={side}')
 			conn.sendall(encode_varint(len(data)) + data)
 
 	def send_client(self, data: bytes, pid: int | None = None):
@@ -265,7 +269,17 @@ class Conn(EventEmitter[PacketEvent]):
 			if slient_fail:
 				return False
 			raise ValueError(f'{repr(packet_name)} does not exists in protocol {idset.version} (include {self.protocol})')
-		self.register(packet_id, callback, priority)
+		if idset.is_c2s[packet_name]:
+			@functools.wraps(callback)
+			def cb(event: PacketEvent):
+				if event.is_client:
+					callback(event)
+		else:
+			@functools.wraps(callback)
+			def cb(event: PacketEvent):
+				if event.is_server:
+					callback(event)
+		self.register(packet_id, cb, priority)
 		return True
 
 class ProxyServer:
@@ -760,7 +774,6 @@ class ProxyServer:
 		assert self._enabled_packet_proxy
 		h = hashlib.sha1()
 		h.update(sid.encode('utf8'))
-		print('secret:', secret)
 		h.update(secret)
 		h.update(self._private_key.publickey().export_key('DER'))
 		d = int(h.hexdigest(), base=16) - (1 << 160)
@@ -835,6 +848,12 @@ def handle_login_packet_c2s(c: Conn, event: PacketEvent, event_dispatcher):
 			encrypted_verify_token = reader.read_bytearray()
 		secret = c.server._cipher.decrypt(encrypted_secret, None)
 		assert secret is not None
+
+		debug(f'encrypted client {repr(secret)}')
+		encryptor = Encryptor(secret)
+		assert not isinstance(c._wrapped_conn_client, EncryptedConn)
+		c._wrapped_conn_client = EncryptedConn(c._wrapped_conn_client, encryptor)
+
 		if encrypted_verify_token is not None:
 			# TODO: salt-signature verify version
 			verify_token = c.server._cipher.decrypt(encrypted_verify_token, None)
@@ -854,10 +873,6 @@ def handle_login_packet_c2s(c: Conn, event: PacketEvent, event_dispatcher):
 			c._custom_data['name'] = data['name']
 			if 'properties' in data:
 				c._custom_data['properties'] = data['properties']
-		debug(f'encrypted client {repr(secret)}')
-		encryptor = Encryptor(secret)
-		assert not isinstance(c._wrapped_conn_client, EncryptedConn)
-		c._wrapped_conn_client = EncryptedConn(c._wrapped_conn_client, encryptor)
 		buf = PacketBuffer()
 		buf.write_varint(0x02)
 		buf.write_uuid(c._custom_data['uuid'])
@@ -874,6 +889,8 @@ def handle_login_packet_c2s(c: Conn, event: PacketEvent, event_dispatcher):
 					buf.write_string(prop['signature'])
 		c.send_client(buf.data)
 		c._client_status = ConnStatus.PLAY
+		if c.server_status == ConnStatus.PLAY:
+			event_dispatcher(ON_POST_LOGIN, (c, ), on_executor_thread=False)
 
 def handle_login_packet_s2c(c: Conn, event: PacketEvent, event_dispatcher):
 	reader = event.reader
@@ -902,11 +919,12 @@ def handle_login_packet_s2c(c: Conn, event: PacketEvent, event_dispatcher):
 		c.kick('minecraft server enabled authorization, please disable first')
 	elif reader.id == 0x02: # Login Success
 		event.cancel()
-		debug('Login success', c)
+		debug('Serverside login success', c)
 		c._server_status = ConnStatus.PLAY
+		if 'client_verify_token' in c._custom_data:
+			return
 		if c.client_status == ConnStatus.PLAY:
 			event_dispatcher(ON_POST_LOGIN, (c, ), on_executor_thread=False)
-		if 'client_verify_token' in c._custom_data:
 			return
 		if 'uuid' in c._custom_data:
 			buf = PacketBuffer()
@@ -927,8 +945,7 @@ def handle_login_packet_s2c(c: Conn, event: PacketEvent, event_dispatcher):
 		else:
 			c.send_client(reader.data)
 		c._client_status = ConnStatus.PLAY
-		if c.server_status == ConnStatus.PLAY:
-			event_dispatcher(ON_POST_LOGIN, (c, ), on_executor_thread=False)
+		event_dispatcher(ON_POST_LOGIN, (c, ), on_executor_thread=False)
 	elif reader.id == 0x03: # Set compression
 		event.cancel()
 		compress_threshold = reader.read_varint()

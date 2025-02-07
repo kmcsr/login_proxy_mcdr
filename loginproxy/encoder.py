@@ -87,7 +87,7 @@ def recv_varint2(c) -> tuple[int, int]:
 		if n & 0x80 == 0:
 			break
 		i += 7
-		if i >= 32:
+		if i > 35:
 			raise DecodeError('VarInt too big', '32-bit', str(i) + '-bit')
 	return num, leng
 
@@ -125,6 +125,10 @@ class PacketReader:
 	@property
 	def remain(self) -> int:
 		return len(self._data) - self._reader.seek(0, io.SEEK_CUR)
+
+	@property
+	def remain_data(self) -> bytes:
+		return self._data[self._reader.seek(0, io.SEEK_CUR):]
 
 	def reset(self) -> None:
 		self._reader.seek(self._read_id, io.SEEK_SET)
@@ -190,7 +194,8 @@ class PacketReader:
 			if bt & 0x80 == 0:
 				break
 			i += 7
-			if i > 32:
+			if i > 35:
+				print(self.data)
 				raise DecodeError('VarInt too big', '32-bit', str(i) + '-bit')
 		return n
 

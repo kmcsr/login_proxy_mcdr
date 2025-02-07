@@ -16,7 +16,7 @@ def get_has_joined(username: str, serverid: str, ip: str | None = None, retry: i
 		data = get_has_joined0(username, serverid, ip)
 		if data is not None:
 			return data
-		time.sleep(0.5)
+		time.sleep(0.2)
 	return None
 
 def get_has_joined0(username: str, serverid: str, ip: str | None = None) -> dict | None:
