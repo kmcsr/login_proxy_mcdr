@@ -1,6 +1,6 @@
 {
   "id": "loginproxy",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "name": "LoginProxy",
   "description": {
     "en_us": "A Minecraft login proxy Plugin",

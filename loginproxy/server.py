@@ -27,6 +27,7 @@ from .utils import *
 from . import mojang
 
 __all__ = [
+	'PacketEvent',
 	'ConnStatus', 'Conn',
 	'ProxyServer',
 ]
