@@ -15,7 +15,7 @@ Similar project: <https://github.com/kmcsr/go-liter>
 
 ## Current supported Minecraft version
 
-`1.8.x ~ 1.20.2`
+`1.8.x ~ 1.21.4`
 
 ## Dependencies
 

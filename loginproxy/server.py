@@ -32,7 +32,7 @@ __all__ = [
 	'ProxyServer',
 ]
 
-DEBUG_PACKET = True
+DEBUG_PACKET = False
 
 class ConnStatus(int, enum.Enum):
 	HANDSHAKING   = 0
@@ -205,14 +205,12 @@ class Conn(EventEmitter[PacketEvent]):
 		Send packet to the client
 		"""
 		self._sendpkt(self._wrapped_conn_client, data, lock=self._client_send_lock, compress_threshold=self._client_compress_threshold, side='client')
-		debug('sent on status', self.client_status)
 
 	def send_server(self, data: bytes):
 		"""
 		Send packet to the server
 		"""
 		self._sendpkt(self._wrapped_conn_server, data, lock=self._server_send_lock, compress_threshold=self._server_compress_threshold, side='server')
-		debug('sent on status', self.server_status)
 
 	@property
 	def server(self) -> 'ProxyServer':
@@ -231,7 +229,7 @@ class Conn(EventEmitter[PacketEvent]):
 			return 0x02
 		raise ValueError(f'Unexpect client status {self.client_status}')
 
-	def kick(self, reason: str = 'You have been kicked', *,
+	def kick(self, reason: str | dict[str, Any] = 'You have been kicked', *,
 		server: MCDR.ServerInterface | None = None) -> bool:
 		if not self.isalive:
 			return False
@@ -242,13 +240,18 @@ class Conn(EventEmitter[PacketEvent]):
 				from packet_parser import nbt
 				buf = PacketBuffer()
 				buf.write_varint(disconnect_id)
-				nbt.String('LoginProxy: ' + reason).to_bytes(buf)
+				if isinstance(reason, str):
+					nbt.String('LoginProxy: ' + reason).to_bytes(buf)
+				else:
+					json2nbt(reason).to_bytes(buf)
 				debug('Disconnected:', buf.data)
 				self.send_client(buf.data)
 			else:
-				self.send_client(encode_varint(disconnect_id) + encode_json({
-					'text': 'LoginProxy: ' + reason,
-				}))
+				if isinstance(reason, str):
+					reason = {
+						'text': 'LoginProxy: ' + reason,
+					}
+				self.send_client(encode_varint(disconnect_id) + encode_json(reason))
 			self._alive = False
 			self.conn_server.close()
 			time.sleep(0.5)
@@ -325,6 +328,19 @@ class Conn(EventEmitter[PacketEvent]):
 		status = ConnStatus.from_packet_name(packet_name)
 		return PacketBuilder(self, idset.is_c2s[packet_name], status, packet_id)
 
+def json2nbt(chat: dict):
+	from packet_parser import nbt
+	comp = nbt.Compound([])
+	for k, v in chat.items():
+		if isinstance(v, bool):
+			comp[k] = nbt.Byte(1 if v else 0)
+		elif isinstance(v, str):
+			comp[k] = nbt.String(v)
+		elif isinstance(v, dict):
+			comp[k] = json2nbt(v)
+		else:
+			raise TypeError(f'Unexpected type {type(v)}')
+
 class PacketBuilder(PacketBuffer):
 	__slots__ = ('_conn', '_status', '_is_c2s')
 
@@ -342,6 +358,19 @@ class PacketBuilder(PacketBuffer):
 		else:
 			assert self._status == self._conn.client_status
 			self._conn.send_client(self.data)
+
+	def broadcast(self) -> None:
+		if self._is_c2s:
+			assert self._status == self._conn.server_status
+			sender = Conn.send_server
+		else:
+			assert self._status == self._conn.client_status
+			sender = Conn.send_client
+		for conn in self._conn.server.get_conns():
+			try:
+				sender(conn, self.data)
+			except (ConnectionAbortedError, ConnectionResetError):
+				pass
 
 class ProxyServer:
 	def __init__(self, server: MCDR.ServerInterface, base: str, config: LPConfig, whlist: ListConfig):
@@ -719,6 +748,7 @@ class ProxyServer:
 			traceback.print_exc()
 		finally:
 			if close_flag:
+				time.sleep(0.5)
 				close_conn()
 
 	def handle_login(self, conn, addr: tuple[str, int], login_data: dict, pkt: PacketReader) -> bool:
@@ -992,7 +1022,7 @@ def _handle_login_encryption_response(event: PacketEvent):
 	secret = c.server._cipher.decrypt(encrypted_secret, None)
 	assert secret is not None
 
-	debug(f'encrypted client {repr(secret)}')
+	debug(f'Client connection encrypted')
 	encryptor = Encryptor(secret)
 	assert not isinstance(c._wrapped_conn_client, EncryptedConn)
 	c._wrapped_conn_client = EncryptedConn(c._wrapped_conn_client, encryptor)
@@ -1091,7 +1121,7 @@ def _handle_login_encryption_request(event: PacketEvent):
 	buf.write_bytearray(encrypted_verify_token)
 	c.send_server(buf.data)
 
-	debug(f'encrypted server {repr(secret)}')
+	debug(f'Server connection encrypted')
 	encryptor = Encryptor(secret)
 	assert not isinstance(c._wrapped_conn_server, EncryptedConn)
 	c._wrapped_conn_server = EncryptedConn(c._wrapped_conn_server, encryptor)

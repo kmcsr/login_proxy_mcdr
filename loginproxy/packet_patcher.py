@@ -17,44 +17,68 @@ __all__ = [
 	'patch_connection',
 ]
 
-patchers: dict[int, Callable[[Conn], None]] = {}
+patchers: list[tuple[int, Callable[[Conn], None]]] = []
 
 def patch_connection(conn: Conn):
-	patcher = patchers.get(conn.protocol, None)
-	if patcher is not None:
-		debug(f'applying patcher {patcher} for {conn}')
-		patcher(conn)
+	for v, patcher in patchers:
+		if conn.protocol >= v:
+			debug(f'applying patcher ({v} < {conn.protocol}) {patcher} for {conn}')
+			patcher(conn)
 
 #### VERSIONS ####
 
-def patch_v1_21_1(conn: Conn):
+def patch_v1_20_1(conn: Conn):
+	conn.register_packet('play_player_info_update', patch_play_player_info_update, priority=-100)
 	conn.register_packet('play_player_session', patch_play_player_session, priority=-100)
 
-patchers[Protocol.V1_21_1] = patch_v1_21_1
+patchers.append((Protocol.V1_20_1, patch_v1_20_1))
 
 #### PACKETS ####
 
-class PlayerSession:
-	def __init__(self, session_id: uuid.UUID, expires_at: float, public_key: bytes):
+class ChatSession:
+	def __init__(self, session_id: uuid.UUID, public_key: bytes):
 		self.id = session_id
-		self.expires_at = expires_at
 		self.public_key = public_key
+
+def patch_play_player_info_update(event: PacketEvent):
+	conn = event.conn
+	packet = event.reader
+	action = packet.read_byte()
+	if action != 0x02:
+		return
+	event.cancel()
 
 def patch_play_player_session(event: PacketEvent):
 	event.cancel()
 
+	conn = event.conn
 	packet = event.reader
 	session_id = packet.read_uuid()
-	expires_at = packet.read_long() / 1000
+	expires_at = packet.read_long()
 	public_key = packet.read_bytearray()
 	key_signature = packet.read_bytearray()
 
-	if expires_at < time.time():
-		event.conn.kick('public key expired')
+	if expires_at < time.time() * 1000:
+		conn.kick({
+			'translate': 'multiplayer.disconnect.expired_public_key',
+		})
 		return
 	# TODO: verify signature
+	if False:
+		conn.kick({
+			'translate': 'multiplayer.disconnect.invalid_public_key_signature.new'
+		})
 
 	debug('session_id:', session_id)
 	debug('public_key:', repr(public_key))
-	event.conn._custom_data['player_session'] = PlayerSession(session_id, expires_at, public_key)
-
+	conn._custom_data['player_session'] = ChatSession(session_id, public_key)
+	conn.new_packet('play_player_info_update').\
+		write_byte(0x02).\
+		write_varint(1).\
+		write_uuid(conn._custom_data['uuid']).\
+		write_bool(True).\
+		write_uuid(session_id).\
+		write_long(expires_at).\
+		write_bytearray(public_key).\
+		write_bytearray(key_signature).\
+		broadcast()
