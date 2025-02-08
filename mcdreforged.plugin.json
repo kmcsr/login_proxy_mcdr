@@ -1,20 +1,20 @@
 {
-  "id": "loginproxy",
-  "version": "0.8.6",
-  "name": "LoginProxy",
-  "description": {
-    "en_us": "A Minecraft login proxy plugin",
-    "zh_cn": "Minecraft 服务器登录代理兼白名单插件"
-  },
-  "author": "zyxkad",
-  "link": "https://github.com/kmcsr/login_proxy_mcdr",
-  "dependencies": {
-    "mcdreforged": "^2.3.0",
-    "python": "^3.12",
-    "kpi": "~1.5.1"
-  },
-  "resources": [
-    "LICENSE",
-    "lang"
-  ]
+	"id": "loginproxy",
+	"version": "0.8.7",
+	"name": "LoginProxy",
+	"description": {
+		"en_us": "A Minecraft login proxy plugin",
+		"zh_cn": "Minecraft 服务器登录代理兼白名单插件"
+	},
+	"author": "zyxkad",
+	"link": "https://github.com/kmcsr/login_proxy_mcdr",
+	"dependencies": {
+		"mcdreforged": "^2.3.0",
+		"python": "^3.12",
+		"kpi": "~1.5.1"
+	},
+	"resources": [
+		"LICENSE",
+		"lang"
+	]
 }

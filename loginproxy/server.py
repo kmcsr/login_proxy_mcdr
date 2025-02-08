@@ -243,7 +243,7 @@ class Conn(EventEmitter[PacketEvent]):
 				if isinstance(reason, str):
 					nbt.String('LoginProxy: ' + reason).to_bytes(buf)
 				else:
-					json2nbt(reason).to_bytes(buf)
+					nbt.chat_object_to_nbt(reason).to_bytes(buf)
 				debug('Disconnected:', buf.data)
 				self.send_client(buf.data)
 			else:
@@ -327,19 +327,6 @@ class Conn(EventEmitter[PacketEvent]):
 			raise ValueError(f'{repr(packet_name)} does not exists in protocol {idset.version} (include {self.protocol})')
 		status = ConnStatus.from_packet_name(packet_name)
 		return PacketBuilder(self, idset.is_c2s[packet_name], status, packet_id)
-
-def json2nbt(chat: dict):
-	from packet_parser import nbt
-	comp = nbt.Compound([])
-	for k, v in chat.items():
-		if isinstance(v, bool):
-			comp[k] = nbt.Byte(1 if v else 0)
-		elif isinstance(v, str):
-			comp[k] = nbt.String(v)
-		elif isinstance(v, dict):
-			comp[k] = json2nbt(v)
-		else:
-			raise TypeError(f'Unexpected type {type(v)}')
 
 class PacketBuilder(PacketBuffer):
 	__slots__ = ('_conn', '_status', '_is_c2s')
