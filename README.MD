@@ -15,14 +15,14 @@ Similar project: <https://github.com/kmcsr/go-liter>
 
 ## Current supported Minecraft version
 
-`1.8.x ~ 1.21.4`
+`1.8 ~ 1.21.4`
 
 ## Dependencies
 
-| ID | Release Link |
-|----|----|
-| [kpi](https://github.com/kmcsr/kpi_mcdr) | <https://github.com/kmcsr/kpi_mcdr/releases> |
-| [packet_parser](https://github.com/kmcsr/packet_parser_mcdr) | <https://github.com/kmcsr/packet_parser_mcdr/releases> |
+| ID | Release Link | Is Optional |
+|----|----|----|
+| [`kpi`](https://github.com/kmcsr/kpi_mcdr) | <https://github.com/kmcsr/kpi_mcdr/releases> | required |
+| [`packet_parser`](https://github.com/kmcsr/packet_parser_mcdr) | <https://github.com/kmcsr/packet_parser_mcdr/releases> | optional |
 
 ## How to configure it
 
