@@ -6,14 +6,14 @@ from .constants import *
 from . import configs
 from .utils import *
 from . import commands as CMD
-from .encoder import DecodeError, PacketReader, PacketBuffer, BitSet
+from .encoder import DecodeError, PacketReader, PacketBuffer, BitSet, ServerStatus
 from . import server
 from .server import *
 from . import api
 from .api import *
 
 __all__ = [
-	'DecodeError', 'PacketReader', 'PacketBuffer', 'BitSet',
+	'DecodeError', 'PacketReader', 'PacketBuffer', 'BitSet', 'ServerStatus',
 ]
 
 __all__.extend(api.__all__)

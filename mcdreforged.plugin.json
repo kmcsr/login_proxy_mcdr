@@ -1,10 +1,10 @@
 {
   "id": "loginproxy",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "name": "LoginProxy",
   "description": {
-    "en_us": "A Minecraft login proxy Plugin",
-    "zh_cn": "一个Minecraft服务器登录代理兼白名单插件"
+    "en_us": "A Minecraft login proxy plugin",
+    "zh_cn": "Minecraft 服务器登录代理兼白名单插件"
   },
   "author": "zyxkad",
   "link": "https://github.com/kmcsr/login_proxy_mcdr",
