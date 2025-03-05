@@ -731,8 +731,7 @@ class ProxyServer:
 		except (ConnectionAbortedError, ConnectionResetError):
 			pass
 		except Exception as e:
-			log_warn('Error when handle[[{0[0]}]:{0[1]}]: {1}'.format(addr, str(e)))
-			traceback.print_exc()
+			log_warn('Error when handle [[{0[0]}]:{0[1]}]: {1}'.format(addr, ''.join(traceback.format_exception(e))))
 		finally:
 			if close_flag:
 				time.sleep(0.5)
@@ -903,8 +902,7 @@ def stream_forwarder(src, dst, addr: tuple[str, int], *, chunk_size: int = 1024 
 	except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, OSError):
 		pass
 	except Exception as e:
-		log_warn('Error when handle[{0[0]}:{0[1]}]: {1}'.format(addr, str(e)))
-		traceback.print_exc()
+		log_warn('Error when handle [[{0[0]}:{0[1]}]]: {1}'.format(addr, ''.join(traceback.format_exception(e))))
 	finally:
 		src.close()
 		dst.close()
@@ -982,8 +980,7 @@ def packet_forwarder(c: Conn, c2s: bool, addr: tuple[str, int], *, final=None):
 	except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, OSError):
 		pass
 	except Exception as e:
-		log_warn('Error when handle[{0[0]}:{0[1]}]: {1}'.format(addr, str(e)))
-		traceback.print_exc()
+		log_warn('Error when handle [[{0[0]}:{0[1]}]]: {1}'.format(addr, ''.join(traceback.format_exception(e))))
 	finally:
 		if final is not None:
 			final()
