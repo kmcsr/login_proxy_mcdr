@@ -379,6 +379,7 @@ class ProxyServer:
 		self._max_players = self._properties.get_int('max-players', 20)
 
 		self._online_mode = self.config.online_mode
+		self._identify_by_online_uuid = self._online_mode and self.config.identify_by_online_uuid
 		self._enabled_packet_proxy = self.config.enable_packet_proxy
 		if self._enabled_packet_proxy:
 			from Crypto.Cipher import PKCS1_v1_5
@@ -441,7 +442,7 @@ class ProxyServer:
 
 	def get_conn(self, name: str) -> Conn | None:
 		with self._lock:
-			return self._conns.get(name, None)
+			return self._conns.get(name.lower(), None)
 
 	def get_conns_by_ip(self, ip: str) -> list[Conn]:
 		with self._lock:
@@ -490,17 +491,18 @@ class ProxyServer:
 		c = Conn(name, addr, self, conn, sokt, login_data)
 		c._client_status = ConnStatus.LOGIN
 		c._server_status = ConnStatus.LOGIN
+		namel = name.lower()
 		with self._lock:
-			if name in self._conns:
+			if namel in self._conns:
 				c.kick('Player {} is already exists'.format(name))
 				conn.close()
 				self._uconns.discard(conn)
 				return True
-			self._conns[name] = c
+			self._conns[namel] = c
 		def final():
 			with self._lock:
 				self._uconns.discard(conn)
-				self._conns.pop(c.name, None)
+				self._conns.pop(c.name.lower(), None)
 				if c.isalive:
 					c.disconnect()
 			self._mcdr_server.dispatch_event(ON_LOGOFF, (c, ), on_executor_thread=False)
@@ -737,6 +739,30 @@ class ProxyServer:
 				time.sleep(0.5)
 				close_conn()
 
+	def _is_player_banned(self, login_data: dict) -> bool:
+		if self._identify_by_online_uuid:
+			uid = login_data.get('uuid', None)
+			if uid is not None and str(uid) in self.whlist.banned:
+				return True
+		name = login_data['name'].lower()
+		if name in self.whlist.banned:
+			return True
+		return False
+
+	def _is_player_not_in_whitelist(self, login_data: dict) -> bool:
+		name = login_data['name'].lower()
+		if not self.config.enable_whitelist:
+			return False
+		if self._identify_by_online_uuid:
+			uid = login_data.get('uuid', None)
+			if uid is not None and str(uid) in self.whlist.allowed:
+				return False
+		if self._mcdr_server.get_permission_level(name) >= self.config.whitelist_level:
+			return False
+		if name in self.whlist.allowed:
+			return False
+		return True
+
 	def handle_login(self, conn, addr: tuple[str, int], login_data: dict, pkt: PacketReader) -> bool:
 		cls = self.__class__
 
@@ -761,16 +787,14 @@ class ProxyServer:
 
 		name = login_data['name']
 
-		if name in self.whlist.banned:
-			debug('Disconnected {1}[[{0[0]}]:{0[1]}] for banned name'.format(addr, name))
+		if self._is_player_banned(login_data):
+			debug('Disconnected {1}[[{0[0]}]:{0[1]}] for banned name or uuid'.format(addr, name))
 			send_package(conn, 0x00, encode_json({
 				'text': self.config.messages['banned.name'],
 			}))
 			return False
-		if self.config.enable_whitelist and \
-			name not in self.whlist.allowed and \
-			self._mcdr_server.get_permission_level(name) < self.config.whitelist_level:
-			debug('Disconnected {1}[[{0[0]}]:{0[1]}] for name not in whilelist'.format(addr, name))
+		if self._is_player_not_in_whitelist(login_data):
+			debug('Disconnected {1}[[{0[0]}]:{0[1]}] for name and uuid not in whilelist'.format(addr, name))
 			send_package(conn, 0x00, encode_json({
 				'text': self.config.messages['whitelist.name'],
 			}))
@@ -1031,6 +1055,9 @@ def _handle_login_encryption_response(event: PacketEvent):
 		c._custom_data['name'] = data['name']
 		if 'properties' in data:
 			c._custom_data['properties'] = data['properties']
+		if 'uuid' in c.login_data and c.login_data['uuid'] != c._custom_data['uuid']:
+			c.kick(f'uuid mismatch in login data, got {c.login_data['uuid']}, expect {c._custom_data['uuid']}')
+			return
 
 	buf = PacketBuffer()
 	buf.write_varint(0x02)

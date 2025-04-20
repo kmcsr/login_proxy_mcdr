@@ -1,4 +1,5 @@
 
+import uuid
 from typing import TypeVar
 
 import mcdreforged.api.all as MCDR
@@ -8,6 +9,7 @@ from kpi.command import *
 from .configs import *
 from .utils import *
 from .api import *
+from . import mojang
 
 Prefix = '!!lp'
 
@@ -51,6 +53,10 @@ class Commands(PermCommandSet):
 
 	def help(self, source: MCDR.CommandSource):
 		send_message(source, BIG_BLOCK_BEFOR, tr('help_msg', Prefix), BIG_BLOCK_AFTER, sep='\n')
+
+	def get_player_uuid(self, name: str) -> str | None:
+		uid = mojang.get_player_uuid(name)
+		return str(uid) if uid else None
 
 	@Literal(['list', 'ls'])
 	def list(self, source: MCDR.CommandSource):
@@ -113,10 +119,17 @@ class Commands(PermCommandSet):
 
 	@Literal('ban')
 	def ban(self, source: MCDR.CommandSource, name: str):
-		if name in self.lists.banned:
+		namel = name.lower()
+		if self.config.online_mode and self.config.identify_by_online_uuid and not is_uuid(namel):
+			uid = self.get_player_uuid(name)
+			if uid is None:
+				send_message(source, MSG_ID, tr_res('player.not_found', name))
+				return
+			namel = uid
+		if namel in self.lists.banned:
 			send_message(source, MSG_ID, tr_res('player.already_banned', name))
 			return
-		self.lists.banned.append(name)
+		self.lists.banned.append(namel)
 		conn = get_proxy().get_conn(name)
 		if conn is not None:
 			conn.kick(self.config.messages['banned.name'], server=source.get_server())
@@ -142,8 +155,15 @@ class Commands(PermCommandSet):
 
 	@Literal('pardon')
 	def pardon(self, source: MCDR.CommandSource, name: str):
+		namel = name.lower()
+		if self.config.online_mode and self.config.identify_by_online_uuid and not is_uuid(namel):
+			uid = self.get_player_uuid(name)
+			if uid is None:
+				send_message(source, MSG_ID, tr_res('player.not_found', name))
+				return
+			namel = uid
 		try:
-			self.lists.banned.remove(name)
+			self.lists.banned.remove(namel)
 		except ValueError:
 			send_message(source, MSG_ID, tr_res('player.not_banned', name))
 			return
@@ -155,7 +175,6 @@ class Commands(PermCommandSet):
 		ip0 = parse_network_or_error(source, ip)
 		if ip0 is None:
 			return
-		# print('ip0:', ip0, ip0 in self.lists.bannedip)
 		try:
 			self.lists.bannedip.remove(ip0)
 		except ValueError:
@@ -272,10 +291,17 @@ class Commands(PermCommandSet):
 
 	@Literal('allow')
 	def allow(self, source: MCDR.CommandSource, name: str):
-		if name in self.lists.allowed:
+		namel = name.lower()
+		if self.config.online_mode and self.config.identify_by_online_uuid and not is_uuid(namel):
+			uid = self.get_player_uuid(name)
+			if uid is None:
+				send_message(source, MSG_ID, tr_res('player.not_found', name))
+				return
+			namel = uid
+		if namel in self.lists.allowed:
 			send_message(source, MSG_ID, tr_res('player.already_allowed', name))
 			return
-		self.lists.allowed.append(name)
+		self.lists.allowed.append(namel)
 		self.lists.save()
 		send_message(source, MSG_ID, tr_res('player.allowed', name))
 
@@ -293,8 +319,15 @@ class Commands(PermCommandSet):
 
 	@Literal(['remove', 'rm'])
 	def remove(self, source: MCDR.CommandSource, name: str):
+		namel = name.lower()
+		if self.config.online_mode and self.config.identify_by_online_uuid and not is_uuid(namel):
+			uid = self.get_player_uuid(name)
+			if uid is None:
+				send_message(source, MSG_ID, tr_res('player.not_found', name))
+				return
+			namel = uid
 		try:
-			self.lists.allowed.remove(name)
+			self.lists.allowed.remove(namel)
 		except ValueError:
 			send_message(source, MSG_ID, tr_res('player.not_exists', name))
 			return
@@ -324,3 +357,10 @@ class Commands(PermCommandSet):
 					c.kick(msg, server=server)
 		self.lists.save()
 		send_message(source, MSG_ID, tr_res('ip.removed', ip0))
+
+def is_uuid(s: str) -> bool:
+	try:
+		uuid.UUID(s)
+	except ValueError:
+		return False
+	return True

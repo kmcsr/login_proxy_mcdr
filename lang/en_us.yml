@@ -34,6 +34,7 @@ login_proxy:
         allowed: Successful add player {0} into the whitelist
         not_exists: Player {0} has not in the whitelist
         removed: Successful removed player {0} from the whitelist
+        not_found: Player name {0} does not exists
       ip:
         already_banned: IP {0} already banned
         banned: Successful banned ip {0}

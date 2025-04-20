@@ -34,6 +34,7 @@ login_proxy:
         allowed: 成功将玩家 {0} 加入白名单
         not_exists: 玩家 {0} 还没有在白名单内
         removed: 成功将玩家 {0} 从白名单中移除
+        not_found: 玩家名 {0} 不存在
       ip:
         already_banned: IP {0} 已经被封禁了
         banned: 成功封禁IP {0}
