@@ -110,7 +110,9 @@
     },
     "allow_transfer": true, // 是否允许客户端转移到此服务器.
     "enable_packet_proxy": false, // 是否解析数据包. 必须先安装 packet_parser. 需要为大部分依赖于 LoginProxy 的插件启用.
-    "online_mode": false // 是否为在线模式
+    "online_mode": false, // 是否为在线模式
+    "identify_by_online_uuid": true, // 使用 uuid 而非用户名判断玩家身份 (在黑白名单中使用)
+    "uuid_cache_ttl": 3600 // uuid 查询缓存时间 (秒)
 }
 ```
 

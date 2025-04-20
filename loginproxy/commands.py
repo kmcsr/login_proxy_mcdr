@@ -1,4 +1,6 @@
 
+import threading
+import time
 import uuid
 from typing import TypeVar
 
@@ -15,8 +17,10 @@ Prefix = '!!lp'
 
 def register(server: MCDR.PluginServerInterface):
 	cfg = get_config()
+	lists = ListConfig.instance()
+	assert lists is not None
 
-	Commands(config=cfg, lists=ListConfig.instance()).register_to(server)
+	Commands(config=cfg, lists=lists).register_to(server)
 
 def tr_res(key, *args, **kwargs):
 	return tr(f'message.response.{key}', *args, **kwargs)
@@ -35,10 +39,14 @@ class Commands(PermCommandSet):
 	Prefix = Prefix
 	HelpMessage = 'Login Proxy help message'
 
-	def __init__(self, *args, config, lists, **kwargs):
+	def __init__(self, *args, config: LPConfig, lists: ListConfig, **kwargs) -> None:
 		super().__init__(*args, **kwargs)
 		self.__config = config
 		self.__lists = lists
+		self.__api_cache_lock = threading.Lock()
+		self.__api_cache_expire = 0.0
+		self.__id2name: dict[uuid.UUID, str] = {}
+		self.__name2id: dict[str, uuid.UUID] = {}
 
 	@property
 	def config(self):
@@ -54,9 +62,47 @@ class Commands(PermCommandSet):
 	def help(self, source: MCDR.CommandSource):
 		send_message(source, BIG_BLOCK_BEFOR, tr('help_msg', Prefix), BIG_BLOCK_AFTER, sep='\n')
 
-	def get_player_uuid(self, name: str) -> str | None:
-		uid = mojang.get_player_uuid(name)
-		return str(uid) if uid else None
+	def get_player_uuid(self, name: str) -> uuid.UUID | None:
+		now = time.time()
+		uid = self.__name2id.get(name, None) if now < self.__api_cache_expire else None
+		if uid is None:
+			with self.__api_cache_lock:
+				if now >= self.__api_cache_expire:
+					self.__name2id.clear()
+					self.__id2name.clear()
+					self.__api_cache_expire = now + self.config.uuid_cache_ttl
+				uid = self.__name2id.get(name, None)
+				if uid is None:
+					uid = mojang.get_player_uuid(name)
+					if uid is not None:
+						self.__id2name[uid] = name
+						self.__name2id[name.lower()] = uid
+		return uid
+
+	def get_player_name(self, uid: uuid.UUID) -> str | None:
+		now = time.time()
+		name = self.__id2name.get(uid, None) if now < self.__api_cache_expire else None
+		if name is None:
+			with self.__api_cache_lock:
+				if now >= self.__api_cache_expire:
+					self.__name2id.clear()
+					self.__id2name.clear()
+					self.__api_cache_expire = now + self.config.uuid_cache_ttl
+				name = self.__id2name.get(uid, None)
+				if name is None:
+					name = mojang.get_player_name(uid)
+					if name is not None:
+						self.__id2name[uid] = name
+						self.__name2id[name.lower()] = uid
+		return name
+
+	def _format_uuid(self, player: str) -> str:
+		try:
+			uid = uuid.UUID(player)
+		except ValueError:
+			return player
+		name = self.get_player_name(uid)
+		return f'<unknown>({uid})' if name is None else f'{name}({uid})'
 
 	@Literal(['list', 'ls'])
 	def list(self, source: MCDR.CommandSource):
@@ -104,7 +150,7 @@ class Commands(PermCommandSet):
 		send_message(source, BIG_BLOCK_BEFOR)
 		send_message(source, 'Banned players:')
 		for p in self.lists.banned:
-			send_message(source, '-', p, new_command(
+			send_message(source, '-', self._format_uuid(p), new_command(
 				'{0} pardon {1}'.format(Prefix, p), text='[-]',
 				action=MCDR.RAction.suggest_command, color=MCDR.RColor.red, styles=None).
 				h('Pardon player {}'.format(p)))
@@ -119,22 +165,35 @@ class Commands(PermCommandSet):
 
 	@Literal('ban')
 	def ban(self, source: MCDR.CommandSource, name: str):
+		names = name
 		namel = name.lower()
-		if self.config.online_mode and self.config.identify_by_online_uuid and not is_uuid(namel):
-			uid = self.get_player_uuid(name)
+		if self.config.online_mode and self.config.identify_by_online_uuid:
+			try:
+				uid = uuid.UUID(name)
+			except ValueError:
+				uid = None
 			if uid is None:
-				send_message(source, MSG_ID, tr_res('player.not_found', name))
-				return
-			namel = uid
+				uid = self.get_player_uuid(name)
+				if uid is None:
+					send_message(source, MSG_ID, tr_res('player.not_found', name))
+					return
+			else:
+				name0 = self.get_player_name(uid)
+				if name0 is None:
+					send_message(source, MSG_ID, tr_res('player.id_not_found', uid))
+					return
+				name = name0
+			names = f'{name}({uid})'
+			namel = str(uid)
 		if namel in self.lists.banned:
-			send_message(source, MSG_ID, tr_res('player.already_banned', name))
+			send_message(source, MSG_ID, tr_res('player.already_banned', names))
 			return
 		self.lists.banned.append(namel)
 		conn = get_proxy().get_conn(name)
 		if conn is not None:
 			conn.kick(self.config.messages['banned.name'], server=source.get_server())
 		self.lists.save()
-		send_message(source, MSG_ID, tr_res('player.banned', name))
+		send_message(source, MSG_ID, tr_res('player.banned', names))
 
 	@Literal('banip')
 	def banip(self, source: MCDR.CommandSource, ip: str):
@@ -155,20 +214,33 @@ class Commands(PermCommandSet):
 
 	@Literal('pardon')
 	def pardon(self, source: MCDR.CommandSource, name: str):
+		names = name
 		namel = name.lower()
-		if self.config.online_mode and self.config.identify_by_online_uuid and not is_uuid(namel):
-			uid = self.get_player_uuid(name)
+		if self.config.online_mode and self.config.identify_by_online_uuid:
+			try:
+				uid = uuid.UUID(name)
+			except ValueError:
+				uid = None
 			if uid is None:
-				send_message(source, MSG_ID, tr_res('player.not_found', name))
-				return
-			namel = uid
+				uid = self.get_player_uuid(name)
+				if uid is None:
+					send_message(source, MSG_ID, tr_res('player.not_found', name))
+					return
+			else:
+				name0 = self.get_player_name(uid)
+				if name0 is None:
+					send_message(source, MSG_ID, tr_res('player.id_not_found', uid))
+					return
+				name = name0
+			names = f'{name}({uid})'
+			namel = str(uid)
 		try:
 			self.lists.banned.remove(namel)
 		except ValueError:
-			send_message(source, MSG_ID, tr_res('player.not_banned', name))
+			send_message(source, MSG_ID, tr_res('player.not_banned', names))
 			return
 		self.lists.save()
-		send_message(source, MSG_ID, tr_res('player.unbanned', name))
+		send_message(source, MSG_ID, tr_res('player.unbanned', names))
 
 	@Literal('pardonip')
 	def pardonip(self, source: MCDR.CommandSource, ip: str):
@@ -217,7 +289,7 @@ class Commands(PermCommandSet):
 					text='[R]', color=MCDR.RColor.red))
 			for p in self.lists.allowed:
 				send_message(source, '-',
-					new_command(p, action=MCDR.RAction.suggest_command, styles=None),
+					new_command(self._format_uuid(p), action=MCDR.RAction.suggest_command, styles=None),
 					*[g(p) for g in gens])
 
 			send_message(source, 'Allowed ips',
@@ -291,19 +363,32 @@ class Commands(PermCommandSet):
 
 	@Literal('allow')
 	def allow(self, source: MCDR.CommandSource, name: str):
+		names = name
 		namel = name.lower()
-		if self.config.online_mode and self.config.identify_by_online_uuid and not is_uuid(namel):
-			uid = self.get_player_uuid(name)
+		if self.config.online_mode and self.config.identify_by_online_uuid:
+			try:
+				uid = uuid.UUID(name)
+			except ValueError:
+				uid = None
 			if uid is None:
-				send_message(source, MSG_ID, tr_res('player.not_found', name))
-				return
-			namel = uid
+				uid = self.get_player_uuid(name)
+				if uid is None:
+					send_message(source, MSG_ID, tr_res('player.not_found', name))
+					return
+			else:
+				name0 = self.get_player_name(uid)
+				if name0 is None:
+					send_message(source, MSG_ID, tr_res('player.id_not_found', uid))
+					return
+				name = name0
+			names = f'{name}({uid})'
+			namel = str(uid)
 		if namel in self.lists.allowed:
-			send_message(source, MSG_ID, tr_res('player.already_allowed', name))
+			send_message(source, MSG_ID, tr_res('player.already_allowed', names))
 			return
 		self.lists.allowed.append(namel)
 		self.lists.save()
-		send_message(source, MSG_ID, tr_res('player.allowed', name))
+		send_message(source, MSG_ID, tr_res('player.allowed', names))
 
 	@Literal('allowip')
 	def allowip(self, source: MCDR.CommandSource, ip: str):
@@ -319,24 +404,37 @@ class Commands(PermCommandSet):
 
 	@Literal(['remove', 'rm'])
 	def remove(self, source: MCDR.CommandSource, name: str):
+		names = name
 		namel = name.lower()
-		if self.config.online_mode and self.config.identify_by_online_uuid and not is_uuid(namel):
-			uid = self.get_player_uuid(name)
+		if self.config.online_mode and self.config.identify_by_online_uuid:
+			try:
+				uid = uuid.UUID(name)
+			except ValueError:
+				uid = None
 			if uid is None:
-				send_message(source, MSG_ID, tr_res('player.not_found', name))
-				return
-			namel = uid
+				uid = self.get_player_uuid(name)
+				if uid is None:
+					send_message(source, MSG_ID, tr_res('player.not_found', name))
+					return
+			else:
+				name0 = self.get_player_name(uid)
+				if name0 is None:
+					send_message(source, MSG_ID, tr_res('player.id_not_found', uid))
+					return
+				name = name0
+			names = f'{name}({uid})'
+			namel = str(uid)
 		try:
 			self.lists.allowed.remove(namel)
 		except ValueError:
-			send_message(source, MSG_ID, tr_res('player.not_exists', name))
+			send_message(source, MSG_ID, tr_res('player.not_exists', names))
 			return
 		if self.config.enable_whitelist and not self.config.check_player_level(name):
 			conn = get_proxy().get_conn(name)
 			if conn is not None:
 				conn.kick(self.config.messages['whitelist.name'], server=source.get_server())
 		self.lists.save()
-		send_message(source, MSG_ID, tr_res('player.removed', name))
+		send_message(source, MSG_ID, tr_res('player.removed', names))
 
 	@Literal(['removeip', 'rmip'])
 	def removeip(self, source: MCDR.CommandSource, ip: str):

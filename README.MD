@@ -66,7 +66,12 @@ Similar project: <https://github.com/kmcsr/go-liter>
         "banned.ip": "Your ip has been banned", // Show when client's IP has been banned
         "whitelist.name": "Your account not in the whitelist", // Show when player's name not in the whitelist
         "whitelist.ip": "Your ip not in the whitelist" // Show when client's IP not in the whitelist
-    }
+    },
+    "allow_transfer": true, // whether or not allow player transfer from another server
+    "enable_packet_proxy": false, // whether or not parse network packets. Must install packet_parser first. Required for most plugins that depends on loginproxy
+    "online_mode": false, // same as online-mode in vanilla server.properties
+    "identify_by_online_uuid": true, // use uuid instead of player name to identify a player (used in blacklist/whitelist)
+    "uuid_cache_ttl": 3600 // uuid request cache time in seconds
 }
 ```
 

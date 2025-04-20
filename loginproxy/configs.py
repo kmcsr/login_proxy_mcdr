@@ -61,6 +61,7 @@ class LPConfig(Config, msg_id=MSG_ID):
 	enable_packet_proxy: bool = False
 	online_mode: bool = False
 	identify_by_online_uuid: bool = True
+	uuid_cache_ttl: int = 60 * 60
 
 	def check_player_level(self, name: str) -> bool:
 		return get_server_instance().get_permission_level(name) >= self.whitelist_level
